@@ -6,9 +6,9 @@ from typing import Callable
 
 import numpy as np
 
-from .affine_ransac import estimate_affine_3x3_ransac
 from .executor import run_command, workdir_fallback_match_paths
 from .matches import resolve_matches
+from .transform_estimator import estimate_transform_3x3
 from .visualization import save_visualizations
 
 
@@ -18,6 +18,7 @@ class TaskInputs:
     command: str
     command_cwd: str
     algorithms_root: str
+    transform_model: str
     fixed_path: str
     moving_path: str
     output_dir: str
@@ -29,6 +30,7 @@ class TaskInputs:
 
 @dataclass(frozen=True)
 class TaskOutputs:
+    transform_model: str
     H_3x3: list[list[float]]
     rmse: float
     matches_count: int
@@ -122,11 +124,11 @@ class RegistrationPipeline:
             )
             log_wrapper(f"Matches resolved: {mr.points1.shape[0]} points (Source: {mr.source})")
 
-            # 3. Estimate Affine
-            est = estimate_affine_3x3_ransac(mr.points1, mr.points2, self._in.ransac_thresh_px)
-            log_wrapper(f"Affine estimated. Inliers: {int(est.inlier_mask.sum())}, RMSE: {est.rmse:.4f}")
+            # 3. Estimate Transform
+            est = estimate_transform_3x3(mr.points1, mr.points2, self._in.transform_model, self._in.ransac_thresh_px)
+            log_wrapper(f"{est.model} estimated. Inliers: {int(est.inlier_mask.sum())}, RMSE: {est.rmse:.4f}")
 
-            H_path = str((out_dir / "H_affine_3x3.txt").resolve())
+            H_path = str((out_dir / f"H_{est.model}_3x3.txt").resolve())
             np.savetxt(H_path, est.H_3x3, fmt="%.10f")
 
             # 4. Visualization
@@ -143,6 +145,7 @@ class RegistrationPipeline:
             log_wrapper(f"Visualizations saved to {out_dir}")
 
             out = TaskOutputs(
+                transform_model=str(est.model),
                 H_3x3=est.H_3x3.tolist(),
                 rmse=float(est.rmse),
                 matches_count=int(mr.points1.shape[0]),

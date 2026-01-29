@@ -31,6 +31,7 @@ class AppConfig:
     last_fixed: str
     last_moving: str
     last_output_root: str
+    last_transform_model: str
     ransac_thresh_px: float
     checker_tile_px: int
     generate_matches_if_missing: bool
@@ -47,6 +48,7 @@ class AppConfig:
             last_fixed="",
             last_moving="",
             last_output_root=str((Path(__file__).resolve().parents[2] / "outputs").resolve()),
+            last_transform_model="affine",
             ransac_thresh_px=10.0,
             checker_tile_px=48,
             generate_matches_if_missing=True,
@@ -111,6 +113,7 @@ def load_config() -> AppConfig:
     cfg.last_fixed = str(raw.get("last_fixed", cfg.last_fixed))
     cfg.last_moving = str(raw.get("last_moving", cfg.last_moving))
     cfg.last_output_root = str(raw.get("last_output_root", cfg.last_output_root))
+    cfg.last_transform_model = str(raw.get("last_transform_model", cfg.last_transform_model))
     cfg.ransac_thresh_px = float(raw.get("ransac_thresh_px", cfg.ransac_thresh_px))
     cfg.checker_tile_px = int(raw.get("checker_tile_px", cfg.checker_tile_px))
     cfg.generate_matches_if_missing = bool(raw.get("generate_matches_if_missing", cfg.generate_matches_if_missing))
@@ -120,7 +123,28 @@ def load_config() -> AppConfig:
 def save_config(cfg: AppConfig) -> None:
     p = config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = asdict(cfg)
-    payload["exes"] = [asdict(x) for x in cfg.exes]
-    payload["algorithms"] = [asdict(x) for x in cfg.algorithms]
+    payload: dict[str, Any] = {}
+    if p.exists():
+        try:
+            payload = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+
+    if "exes" not in payload:
+        payload["exes"] = [asdict(x) for x in cfg.exes]
+    if "algorithms" not in payload:
+        payload["algorithms"] = [asdict(x) for x in cfg.algorithms]
+    if "algorithms_root" not in payload:
+        payload["algorithms_root"] = cfg.algorithms_root
+
+    payload["last_input_mode"] = cfg.last_input_mode
+    payload["last_folder"] = cfg.last_folder
+    payload["last_pairs_txt"] = cfg.last_pairs_txt
+    payload["last_fixed"] = cfg.last_fixed
+    payload["last_moving"] = cfg.last_moving
+    payload["last_output_root"] = cfg.last_output_root
+    payload["last_transform_model"] = cfg.last_transform_model
+    payload["ransac_thresh_px"] = cfg.ransac_thresh_px
+    payload["checker_tile_px"] = cfg.checker_tile_px
+    payload["generate_matches_if_missing"] = cfg.generate_matches_if_missing
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

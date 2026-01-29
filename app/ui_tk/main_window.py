@@ -5,9 +5,11 @@ from pathlib import Path
 import queue
 import cv2
 from PIL import Image, ImageTk
+import numpy as np
 
 from ..core.config import load_config, save_config, AppConfig
 from ..core.folder_pairs import find_pairs, parse_pairs_txt, ImagePair
+from ..core.manual_pipeline import ManualInputs, ManualRegistrationPipeline
 from ..core.pipeline import RegistrationPipeline, TaskInputs, TaskOutputs
 
 # --- Styles & Colors ---
@@ -46,6 +48,23 @@ class MainWindow(tk.Tk):
         self.batch_mode: str = ""
         self.batch_algo_entry = None
         self.batch_out_root: str = ""
+
+        self.manual_fixed_img: Image.Image | None = None
+        self.manual_moving_img: Image.Image | None = None
+        self.manual_fixed_photo: ImageTk.PhotoImage | None = None
+        self.manual_moving_photo: ImageTk.PhotoImage | None = None
+        self.manual_fixed_zoom: float | None = None
+        self.manual_fixed_offset_x: float = 0.0
+        self.manual_fixed_offset_y: float = 0.0
+        self.manual_moving_zoom: float | None = None
+        self.manual_moving_offset_x: float = 0.0
+        self.manual_moving_offset_y: float = 0.0
+        self.manual_fixed_pan_start: tuple[int, int, float, float] | None = None
+        self.manual_moving_pan_start: tuple[int, int, float, float] | None = None
+        self.manual_points_fixed: list[tuple[float, float]] = []
+        self.manual_points_moving: list[tuple[float, float]] = []
+        self.manual_pending_fixed: tuple[float, float] | None = None
+        self.manual_pending_moving: tuple[float, float] | None = None
         
         self.queue = queue.Queue()
         
@@ -83,7 +102,7 @@ class MainWindow(tk.Tk):
         h_container.pack(side=tk.LEFT, padx=20, pady=15)
 
         # Title text first (White text on Blue bg)
-        lbl_title = tk.Label(h_container, text="Image Registration Tool", font=("Segoe UI", 22, "bold"), bg=ACCENT_COLOR, fg="white")
+        lbl_title = tk.Label(h_container, text="Keypoint Based Image Registration Tool", font=("Segoe UI", 22, "bold"), bg=ACCENT_COLOR, fg="white")
         lbl_title.pack(side=tk.LEFT)
 
         # Logo after text
@@ -198,6 +217,19 @@ class MainWindow(tk.Tk):
         )
         self.txt_algo_hint.pack(fill=tk.X)
         self.txt_algo_hint.config(state=tk.DISABLED)
+
+        transform_group = ttk.LabelFrame(container, text="Transform Model")
+        transform_group.pack(fill=tk.X, pady=5)
+        self.transform_model_var = tk.StringVar(value="affine")
+        self.transform_combo = ttk.Combobox(
+            transform_group,
+            state="readonly",
+            font=NORMAL_FONT,
+            values=["affine", "homography", "fsc-affine", "fsc-perspective"],
+            textvariable=self.transform_model_var,
+        )
+        self.transform_combo.pack(fill=tk.X, padx=10, pady=8)
+        self.transform_combo.bind("<<ComboboxSelected>>", lambda e: self._save_config())
 
         # Input Mode
         input_group = ttk.LabelFrame(container, text="Input Data")
@@ -322,6 +354,22 @@ class MainWindow(tk.Tk):
         self.cancel_btn = ttk.Button(ctrl_group, text="Stop", state=tk.DISABLED, command=self._cancel_task)
         self.cancel_btn.pack(fill=tk.X, pady=2)
 
+        manual_group = ttk.LabelFrame(container, text="Manual Matches")
+        manual_group.pack(fill=tk.BOTH, expand=False, pady=5)
+        self.txt_manual_points = tk.Text(
+            manual_group,
+            height=8,
+            font=MONO_FONT,
+            bg="white",
+            relief="flat",
+            borderwidth=1,
+            padx=8,
+            pady=6,
+        )
+        self.txt_manual_points.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        self.txt_manual_points.config(state=tk.DISABLED)
+        self._manual_update_points_text()
+
     def _setup_right_panel(self):
         self.right_paned = ttk.PanedWindow(self.right_frame, orient=tk.VERTICAL)
         self.right_paned.pack(fill=tk.BOTH, expand=True)
@@ -354,6 +402,11 @@ class MainWindow(tk.Tk):
                                     bg="#3B82F6", fg="white", relief="flat", padx=15, pady=5,
                                     command=lambda: self._switch_tab("matrix"))
         self.btn_matrix.pack(side=tk.LEFT)
+
+        self.btn_manual = tk.Button(btn_bar, text="Manual", font=("Segoe UI", 10, "bold"),
+                                    bg="#EF4444", fg="white", relief="flat", padx=15, pady=5,
+                                    command=lambda: self._switch_tab("manual"))
+        self.btn_manual.pack(side=tk.LEFT, padx=(5, 0))
 
         # Content Area (Stacked Frames)
         self.content_area = ttk.Frame(tabs_container)
@@ -404,6 +457,40 @@ class MainWindow(tk.Tk):
         mat_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         self.txt_matrix = tk.Text(mat_container, font=MONO_FONT, bg="white", relief="flat", borderwidth=1, padx=10, pady=10)
         self.txt_matrix.pack(fill=tk.BOTH, expand=True)
+
+        self.frame_manual = ttk.Frame(self.content_area)
+        manual_bar = tk.Frame(self.frame_manual, bg="#111827", padx=10, pady=6)
+        manual_bar.pack(fill=tk.X)
+        tk.Label(
+            manual_bar,
+            text="手动配准：先点左图一个点，再点右图一个点生成一对匹配（双击点可删除）。",
+            bg="#111827",
+            fg="white",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side=tk.LEFT)
+        ttk.Button(manual_bar, text="Reload", command=self._manual_reload_pair).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(manual_bar, text="Clear", command=self._manual_clear_points).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(manual_bar, text="Apply", command=self._manual_apply).pack(side=tk.RIGHT)
+
+        manual_paned = ttk.PanedWindow(self.frame_manual, orient=tk.HORIZONTAL)
+        manual_paned.pack(fill=tk.BOTH, expand=True)
+        self.manual_canvas_fixed = tk.Canvas(manual_paned, bg="black", highlightthickness=0)
+        self.manual_canvas_moving = tk.Canvas(manual_paned, bg="black", highlightthickness=0)
+        manual_paned.add(self.manual_canvas_fixed, weight=1)
+        manual_paned.add(self.manual_canvas_moving, weight=1)
+
+        self.manual_canvas_fixed.bind("<Configure>", lambda e: self._manual_render())
+        self.manual_canvas_moving.bind("<Configure>", lambda e: self._manual_render())
+        self.manual_canvas_fixed.bind("<Button-1>", lambda e: self._manual_on_click("fixed", e.x, e.y))
+        self.manual_canvas_moving.bind("<Button-1>", lambda e: self._manual_on_click("moving", e.x, e.y))
+        self.manual_canvas_fixed.bind("<Double-Button-1>", lambda e: self._manual_on_double_click("fixed", e.x, e.y))
+        self.manual_canvas_moving.bind("<Double-Button-1>", lambda e: self._manual_on_double_click("moving", e.x, e.y))
+        self.manual_canvas_fixed.bind("<MouseWheel>", lambda e: self._manual_on_wheel("fixed", e))
+        self.manual_canvas_moving.bind("<MouseWheel>", lambda e: self._manual_on_wheel("moving", e))
+        self.manual_canvas_fixed.bind("<ButtonPress-3>", lambda e: self._manual_on_pan_start("fixed", e))
+        self.manual_canvas_moving.bind("<ButtonPress-3>", lambda e: self._manual_on_pan_start("moving", e))
+        self.manual_canvas_fixed.bind("<B3-Motion>", lambda e: self._manual_on_pan_move("fixed", e))
+        self.manual_canvas_moving.bind("<B3-Motion>", lambda e: self._manual_on_pan_move("moving", e))
 
         # Show default tab
         self._switch_tab("matches")
@@ -584,6 +671,359 @@ class MainWindow(tk.Tk):
         self.compare_offset_y = oy + (float(event.y) - sy)
         self._render_compare_view()
 
+    def _manual_reload_pair(self) -> None:
+        fixed = self.fixed_path_var.get()
+        moving = self.moving_path_var.get()
+        if not fixed or not Path(fixed).exists() or not moving or not Path(moving).exists():
+            self.manual_fixed_img = None
+            self.manual_moving_img = None
+            self.manual_fixed_zoom = None
+            self.manual_fixed_offset_x = 0.0
+            self.manual_fixed_offset_y = 0.0
+            self.manual_moving_zoom = None
+            self.manual_moving_offset_x = 0.0
+            self.manual_moving_offset_y = 0.0
+            self._manual_clear_points()
+            self._manual_render()
+            return
+        try:
+            self.manual_fixed_img = Image.open(fixed)
+            self.manual_moving_img = Image.open(moving)
+            if self.manual_fixed_img.mode not in ("RGB", "RGBA"):
+                self.manual_fixed_img = self.manual_fixed_img.convert("RGB")
+            if self.manual_fixed_img.mode == "RGBA":
+                self.manual_fixed_img = self.manual_fixed_img.convert("RGB")
+            if self.manual_moving_img.mode not in ("RGB", "RGBA"):
+                self.manual_moving_img = self.manual_moving_img.convert("RGB")
+            if self.manual_moving_img.mode == "RGBA":
+                self.manual_moving_img = self.manual_moving_img.convert("RGB")
+        except Exception:
+            self.manual_fixed_img = None
+            self.manual_moving_img = None
+        self.manual_fixed_zoom = None
+        self.manual_fixed_offset_x = 0.0
+        self.manual_fixed_offset_y = 0.0
+        self.manual_moving_zoom = None
+        self.manual_moving_offset_x = 0.0
+        self.manual_moving_offset_y = 0.0
+        self._manual_clear_points()
+        self._manual_render()
+
+    def _manual_clear_points(self) -> None:
+        self.manual_points_fixed = []
+        self.manual_points_moving = []
+        self.manual_pending_fixed = None
+        self.manual_pending_moving = None
+        self._manual_update_points_text()
+        self._manual_render()
+
+    def _manual_apply(self) -> None:
+        if self.manual_fixed_img is None or self.manual_moving_img is None:
+            messagebox.showerror("Error", "Please select a valid pair first.")
+            return
+        if len(self.manual_points_fixed) < 4 or len(self.manual_points_moving) < 4:
+            messagebox.showwarning("匹配点不足", "至少需要 4 对匹配点才能估计变换，请继续标注。")
+            return
+        fixed, moving, key = self._get_current_pair_paths_and_key()
+        out_root = self.out_path_var.get()
+        out_dir = str((Path(out_root) / "MANUAL" / key).resolve())
+        inputs = ManualInputs(
+            fixed_path=fixed,
+            moving_path=moving,
+            output_dir=out_dir,
+            transform_model=self.transform_model_var.get(),
+            ransac_thresh_px=self.config.ransac_thresh_px,
+            checker_tile_px=self.config.checker_tile_px,
+            points_fixed=np.asarray(self.manual_points_fixed, dtype=np.float32),
+            points_moving=np.asarray(self.manual_points_moving, dtype=np.float32),
+        )
+        self._start_manual_pipeline(inputs, header=f"Manual: {key}")
+
+    def _get_current_pair_paths_and_key(self) -> tuple[str, str, str]:
+        mode = self.mode_var.get()
+        if mode == "folder":
+            sel = self.pair_list.curselection()
+            if sel and sel[0] < len(self.pairs):
+                pair = self.pairs[sel[0]]
+                return pair.fixed_path, pair.moving_path, pair.key
+        if mode == "txt":
+            sel = self.txt_pair_list.curselection()
+            if sel and sel[0] < len(self.pairs):
+                pair = self.pairs[sel[0]]
+                return pair.fixed_path, pair.moving_path, pair.key
+        fixed = self.fixed_path_var.get()
+        moving = self.moving_path_var.get()
+        return fixed, moving, "custom_pair"
+
+    def _start_manual_pipeline(self, inputs: ManualInputs, header: str) -> None:
+        self.batch_active = False
+        self.cancel_flag = False
+        self.run_btn.config(state=tk.DISABLED)
+        self.cancel_btn.config(state=tk.NORMAL)
+        self.txt_log.config(state=tk.NORMAL)
+        self.txt_log.delete(1.0, tk.END)
+        self.txt_log.insert(tk.END, header + "\n")
+        self.txt_log.see(tk.END)
+        self.txt_log.config(state=tk.DISABLED)
+
+        def on_log(s): self._log(s)
+        def on_success(o): self.queue.put(("success", o))
+        def on_error(e): self.queue.put(("error", e))
+        def is_cancelled(): return self.cancel_flag
+
+        p = ManualRegistrationPipeline(inputs, on_log, on_success, on_error, is_cancelled)
+        threading.Thread(target=p.run, daemon=True).start()
+
+    def _manual_on_click(self, side: str, cx: int, cy: int) -> None:
+        if side == "fixed":
+            img = self.manual_fixed_img
+            zoom, ox, oy = self._manual_get_view("fixed")
+        else:
+            img = self.manual_moving_img
+            zoom, ox, oy = self._manual_get_view("moving")
+        if img is None:
+            return
+        if zoom is None or zoom <= 0:
+            self._manual_fit_view(side)
+            zoom, ox, oy = self._manual_get_view(side)
+        ix = (cx - ox) / zoom
+        iy = (cy - oy) / zoom
+        if ix < 0 or iy < 0 or ix >= img.size[0] or iy >= img.size[1]:
+            return
+        pt = (float(ix), float(iy))
+        if side == "fixed":
+            self.manual_pending_fixed = pt
+        else:
+            self.manual_pending_moving = pt
+        if self.manual_pending_fixed is not None and self.manual_pending_moving is not None:
+            self.manual_points_fixed.append(self.manual_pending_fixed)
+            self.manual_points_moving.append(self.manual_pending_moving)
+            self.manual_pending_fixed = None
+            self.manual_pending_moving = None
+        self._manual_update_points_text()
+        self._manual_render()
+
+    def _manual_on_double_click(self, side: str, cx: int, cy: int) -> None:
+        if side == "fixed":
+            img = self.manual_fixed_img
+            pts = self.manual_points_fixed
+            pending = self.manual_pending_fixed
+        else:
+            img = self.manual_moving_img
+            pts = self.manual_points_moving
+            pending = self.manual_pending_moving
+        if img is None:
+            return
+
+        zoom, ox, oy = self._manual_get_view(side)
+        if zoom is None or zoom <= 0:
+            self._manual_fit_view(side)
+            zoom, ox, oy = self._manual_get_view(side)
+
+        if pending is not None:
+            px = pending[0] * zoom + ox
+            py = pending[1] * zoom + oy
+            if (px - cx) ** 2 + (py - cy) ** 2 <= 12 ** 2:
+                if side == "fixed":
+                    self.manual_pending_fixed = None
+                else:
+                    self.manual_pending_moving = None
+                self._manual_update_points_text()
+                self._manual_render()
+                return
+
+        best_i = -1
+        best_d2 = 0.0
+        for i, (x, y) in enumerate(pts):
+            px = x * zoom + ox
+            py = y * zoom + oy
+            d2 = (px - cx) ** 2 + (py - cy) ** 2
+            if best_i < 0 or d2 < best_d2:
+                best_i = i
+                best_d2 = d2
+        if best_i >= 0 and best_d2 <= 12 ** 2:
+            del self.manual_points_fixed[best_i]
+            del self.manual_points_moving[best_i]
+        self._manual_update_points_text()
+        self._manual_render()
+
+    def _manual_update_points_text(self) -> None:
+        lines = []
+        lines.append(f"匹配对数: {len(self.manual_points_fixed)}")
+        if len(self.manual_points_fixed) < 4:
+            lines.append("至少需要 4 对才能应用")
+        if self.manual_pending_fixed is not None:
+            lines.append(f"左图待配: ({self.manual_pending_fixed[0]:.1f}, {self.manual_pending_fixed[1]:.1f})")
+        if self.manual_pending_moving is not None:
+            lines.append(f"右图待配: ({self.manual_pending_moving[0]:.1f}, {self.manual_pending_moving[1]:.1f})")
+        lines.append("")
+        for i, (a, b) in enumerate(zip(self.manual_points_fixed, self.manual_points_moving), start=1):
+            lines.append(f"{i:02d}  ({a[0]:.1f}, {a[1]:.1f})  ->  ({b[0]:.1f}, {b[1]:.1f})")
+        self.txt_manual_points.config(state=tk.NORMAL)
+        self.txt_manual_points.delete("1.0", tk.END)
+        self.txt_manual_points.insert(tk.END, "\n".join(lines))
+        self.txt_manual_points.config(state=tk.DISABLED)
+
+    def _manual_render(self) -> None:
+        self._manual_render_one("fixed")
+        self._manual_render_one("moving")
+
+    def _manual_get_view(self, side: str) -> tuple[float | None, float, float]:
+        if side == "fixed":
+            return self.manual_fixed_zoom, self.manual_fixed_offset_x, self.manual_fixed_offset_y
+        return self.manual_moving_zoom, self.manual_moving_offset_x, self.manual_moving_offset_y
+
+    def _manual_set_view(self, side: str, zoom: float | None, ox: float, oy: float) -> None:
+        if side == "fixed":
+            self.manual_fixed_zoom = zoom
+            self.manual_fixed_offset_x = ox
+            self.manual_fixed_offset_y = oy
+        else:
+            self.manual_moving_zoom = zoom
+            self.manual_moving_offset_x = ox
+            self.manual_moving_offset_y = oy
+
+    def _manual_fit_view(self, side: str) -> None:
+        if side == "fixed":
+            canvas = self.manual_canvas_fixed
+            img = self.manual_fixed_img
+        else:
+            canvas = self.manual_canvas_moving
+            img = self.manual_moving_img
+        if img is None:
+            self._manual_set_view(side, None, 0.0, 0.0)
+            return
+        cw = max(int(canvas.winfo_width()), 1)
+        ch = max(int(canvas.winfo_height()), 1)
+        iw, ih = img.size
+        zoom = min(cw / iw, ch / ih)
+        zoom = max(min(float(zoom), 8.0), 0.05)
+        ox = (cw - iw * zoom) * 0.5
+        oy = (ch - ih * zoom) * 0.5
+        self._manual_set_view(side, zoom, ox, oy)
+
+    def _manual_on_wheel(self, side: str, event) -> None:
+        if side == "fixed":
+            img = self.manual_fixed_img
+        else:
+            img = self.manual_moving_img
+        if img is None:
+            return
+        zoom, ox, oy = self._manual_get_view(side)
+        if zoom is None:
+            self._manual_fit_view(side)
+            zoom, ox, oy = self._manual_get_view(side)
+        steps = int(event.delta / 120) if event.delta else 0
+        if steps == 0:
+            return
+        factor = 1.15 ** steps
+        old_zoom = float(zoom or 1.0)
+        new_zoom = max(min(old_zoom * factor, 8.0), 0.05)
+        if abs(new_zoom - old_zoom) < 1e-9:
+            return
+        mx = float(event.x)
+        my = float(event.y)
+        ix = (mx - ox) / old_zoom
+        iy = (my - oy) / old_zoom
+        new_ox = mx - ix * new_zoom
+        new_oy = my - iy * new_zoom
+        self._manual_set_view(side, new_zoom, new_ox, new_oy)
+        self._manual_render_one(side)
+
+    def _manual_on_pan_start(self, side: str, event) -> None:
+        zoom, ox, oy = self._manual_get_view(side)
+        if zoom is None:
+            self._manual_fit_view(side)
+            zoom, ox, oy = self._manual_get_view(side)
+        if side == "fixed":
+            self.manual_fixed_pan_start = (int(event.x), int(event.y), float(ox), float(oy))
+        else:
+            self.manual_moving_pan_start = (int(event.x), int(event.y), float(ox), float(oy))
+
+    def _manual_on_pan_move(self, side: str, event) -> None:
+        if side == "fixed":
+            st = self.manual_fixed_pan_start
+        else:
+            st = self.manual_moving_pan_start
+        if st is None:
+            return
+        sx, sy, ox, oy = st
+        new_ox = ox + (float(event.x) - sx)
+        new_oy = oy + (float(event.y) - sy)
+        zoom, _, _ = self._manual_get_view(side)
+        self._manual_set_view(side, zoom, new_ox, new_oy)
+        self._manual_render_one(side)
+
+    def _manual_render_one(self, side: str) -> None:
+        if side == "fixed":
+            canvas = self.manual_canvas_fixed
+            img = self.manual_fixed_img
+            pts = self.manual_points_fixed
+            pending = self.manual_pending_fixed
+            zoom = self.manual_fixed_zoom
+            ox = self.manual_fixed_offset_x
+            oy = self.manual_fixed_offset_y
+        else:
+            canvas = self.manual_canvas_moving
+            img = self.manual_moving_img
+            pts = self.manual_points_moving
+            pending = self.manual_pending_moving
+            zoom = self.manual_moving_zoom
+            ox = self.manual_moving_offset_x
+            oy = self.manual_moving_offset_y
+
+        cw = int(canvas.winfo_width())
+        ch = int(canvas.winfo_height())
+        canvas.delete("all")
+        if img is None or cw < 20 or ch < 20:
+            canvas.create_text(cw // 2, ch // 2, text="No image", fill="white", font=("Segoe UI", 12, "bold"))
+            return
+
+        iw, ih = img.size
+        if zoom is None:
+            zoom = min(cw / iw, ch / ih)
+            zoom = max(min(float(zoom), 8.0), 0.05)
+            ox = (cw - iw * zoom) * 0.5
+            oy = (ch - ih * zoom) * 0.5
+            self._manual_set_view(side, zoom, ox, oy)
+
+        ix0 = (0 - ox) / zoom
+        iy0 = (0 - oy) / zoom
+        ix1 = (cw - ox) / zoom
+        iy1 = (ch - oy) / zoom
+        ix0_i = int(max(0, min(iw, ix0)))
+        iy0_i = int(max(0, min(ih, iy0)))
+        ix1_i = int(max(0, min(iw, ix1)))
+        iy1_i = int(max(0, min(ih, iy1)))
+        if ix1_i <= ix0_i or iy1_i <= iy0_i:
+            return
+
+        crop = img.crop((ix0_i, iy0_i, ix1_i, iy1_i))
+        target_w = max(1, int(round((ix1_i - ix0_i) * zoom)))
+        target_h = max(1, int(round((iy1_i - iy0_i) * zoom)))
+        if crop.size[0] != target_w or crop.size[1] != target_h:
+            crop = crop.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+        photo = ImageTk.PhotoImage(crop)
+        draw_x = ox + ix0_i * zoom
+        draw_y = oy + iy0_i * zoom
+        if side == "fixed":
+            self.manual_fixed_photo = photo
+        else:
+            self.manual_moving_photo = photo
+        canvas.create_image(draw_x, draw_y, anchor="nw", image=photo)
+
+        for i, (x, y) in enumerate(pts, start=1):
+            px = x * zoom + ox
+            py = y * zoom + oy
+            canvas.create_oval(px - 4, py - 4, px + 4, py + 4, outline="#22C55E", width=2)
+            canvas.create_text(px + 10, py, text=str(i), fill="#22C55E", font=("Segoe UI", 10, "bold"), anchor="w")
+
+        if pending is not None:
+            px = pending[0] * zoom + ox
+            py = pending[1] * zoom + oy
+            canvas.create_oval(px - 5, py - 5, px + 5, py + 5, outline="#F59E0B", width=2)
+
     def _cycle_compare_layer(self, delta: int) -> None:
         if not self.frame_compare.winfo_viewable():
             return
@@ -600,6 +1040,7 @@ class MainWindow(tk.Tk):
         self.frame_fusion.pack_forget()
         self.frame_compare.pack_forget()
         self.frame_matrix.pack_forget()
+        self.frame_manual.pack_forget()
         
         # Reset button styles (optional, keeping simple flat colors)
         # Show selected
@@ -612,6 +1053,9 @@ class MainWindow(tk.Tk):
             self._render_compare_view()
         elif name == "matrix":
             self.frame_matrix.pack(fill=tk.BOTH, expand=True)
+        elif name == "manual":
+            self.frame_manual.pack(fill=tk.BOTH, expand=True)
+            self._manual_reload_pair()
 
     def _load_state(self):
         values = [a.name for a in self.config.algorithms]
@@ -619,6 +1063,8 @@ class MainWindow(tk.Tk):
         if values:
             self.algo_combo.current(0)
         self._update_algo_hint()
+
+        self.transform_model_var.set(self.config.last_transform_model or "affine")
             
         self.mode_var.set(self.config.last_input_mode)
         self._on_mode_change()
@@ -735,6 +1181,7 @@ class MainWindow(tk.Tk):
         self.config.last_pairs_txt = self.pairs_txt_path_var.get()
         self.config.last_fixed = self.fixed_path_var.get()
         self.config.last_moving = self.moving_path_var.get()
+        self.config.last_transform_model = self.transform_model_var.get()
         save_config(self.config)
 
     def _log(self, msg):
@@ -801,6 +1248,7 @@ class MainWindow(tk.Tk):
             command=algo_entry.command,
             command_cwd=algo_entry.cwd,
             algorithms_root=self.config.algorithms_root,
+            transform_model=self.transform_model_var.get(),
             fixed_path=fixed,
             moving_path=moving,
             output_dir=out_dir,
@@ -883,6 +1331,7 @@ class MainWindow(tk.Tk):
             command=self.batch_algo_entry.command,
             command_cwd=self.batch_algo_entry.cwd,
             algorithms_root=self.config.algorithms_root,
+            transform_model=self.transform_model_var.get(),
             fixed_path=pair.fixed_path,
             moving_path=pair.moving_path,
             output_dir=out_dir,
@@ -933,7 +1382,7 @@ class MainWindow(tk.Tk):
         
         self.txt_matrix.delete(1.0, tk.END)
         self.txt_matrix.insert(tk.END, "RMSE: {:.4f}\nInliers: {}\n\n".format(out.rmse, out.inliers_count))
-        self.txt_matrix.insert(tk.END, "Homography (Affine 3x3):\n")
+        self.txt_matrix.insert(tk.END, "Transform ({} 3x3):\n".format(getattr(out, "transform_model", "affine")))
         for row in out.H_3x3:
             self.txt_matrix.insert(tk.END, "[ {:.6f}, {:.6f}, {:.6f} ]\n".format(*row))
 

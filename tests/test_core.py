@@ -11,6 +11,8 @@ import tempfile
 sys.path.append(str(Path(__file__).parent.parent))
 
 from app.core.affine_ransac import estimate_affine_3x3_ransac
+from app.core.transform_ransac import estimate_transform_3x3_ransac
+from app.core.transform_estimator import estimate_transform_3x3
 from app.core.visualization import draw_matches_side_by_side, checkerboard_fusion
 from app.core.folder_pairs import parse_pairs_txt
 
@@ -39,6 +41,18 @@ class TestCore(unittest.TestCase):
         expected = np.array([[1, 0, 10], [0, 1, 20], [0, 0, 1]])
         self.assertTrue(np.allclose(res.H_3x3, expected, atol=0.1))
         self.assertLess(res.rmse, 0.1)
+
+    def test_homography_ransac_identity(self):
+        p1 = np.random.rand(30, 2) * 100
+        p2 = p1.copy()
+        res = estimate_transform_3x3_ransac(p1.astype(np.float32), p2.astype(np.float32), "homography", thresh_px=2.0)
+        self.assertTrue(np.allclose(res.H_3x3, np.eye(3), atol=1e-2))
+
+    def test_fsc_affine_identity(self):
+        p1 = np.random.rand(30, 2) * 100
+        p2 = p1.copy()
+        res = estimate_transform_3x3(p1.astype(np.float32), p2.astype(np.float32), "fsc-affine", thresh_px=2.0)
+        self.assertTrue(np.allclose(res.H_3x3, np.eye(3), atol=1e-2))
 
     def test_visualization_smoke(self):
         # Smoke test for visualization functions

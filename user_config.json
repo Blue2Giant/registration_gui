@@ -3,7 +3,7 @@
   "algorithms": [
     {
       "name": "SRIF_EXE",
-      "command": "\"{algorithms_root}\\\\exe\\\\demo_SRIF_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "command": "\"{algorithms_root}\\\\exe\\\\SRIF.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
       "cwd": "",
       "env_hint": "环境：Windows 可执行文件；把 demo_SRIF_func.exe 放到 algorithms\\\\exe\\\\ 下即可。"
     },
@@ -15,7 +15,7 @@
     },
     {
       "name": "LNIFT_EXE",
-      "command": "\"{algorithms_root}\\\\exe\\\\demo_LNIFT_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "command": "\"{algorithms_root}\\\\exe\\\\LNIFT.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
       "cwd": "",
       "env_hint": "环境：Windows 可执行文件；把 demo_LNIFT_func.exe 放到 algorithms\\\\exe\\\\ 下即可。"
     },
@@ -38,18 +38,6 @@
       "env_hint": "环境：Windows 可执行文件；把 demo_CoFSM_func.exe 放到 algorithms\\\\exe\\\\ 下即可。无需GPU"
     },
     {
-      "name": "MATLAB_SRIF",
-      "command": "matlab -batch \"addpath(genpath('{algorithms_root}')); demo_SRIF_run('{fixed}','{moving}','{matches_out}');\"",
-      "cwd": "{algorithms_root}\\\\matlab\\\\SRIF",
-      "env_hint": "环境：需要安装 MATLAB，并确保 matlab 命令在 PATH；工程放到 algorithms\\\\matlab\\\\SRIF\\\\。"
-    },
-    {
-      "name": "PyTorch_SRIF",
-      "command": "python \"{algorithms_root}\\\\pytorch\\\\srif\\\\run.py\" --fixed \"{fixed}\" --moving \"{moving}\" --matches_out \"{matches_out}\"",
-      "cwd": "{algorithms_root}\\\\pytorch\\\\srif",
-      "env_hint": "环境：需要可用的 Python 环境（建议 conda/venv），并安装该工程依赖；脚本放到 algorithms\\\\pytorch\\\\srif\\\\。"
-    },
-    {
       "name": "MatchAnything_ROMA",
       "command": "python \"{algorithms_root}\\\\pytorch\\\\matching_anything\\\\gui_matchanything_wrapper.py\" --main_cfg_path \"{algorithms_root}\\\\pytorch\\\\matching_anything\\\\config.py\" --ckpt_path \"{algorithms_root}\\\\pytorch\\\\matching_anything\\\\weights\\\\matchanything_roma.ckpt\" --method matchanything_roma@-@ransac_affine --img0 \"{fixed}\" --img1 \"{moving}\" --imgresize 832 --matches_out \"{matches_out}\" --output_dir \"{out_dir}\\\\matchanything\"",
       "cwd": "{algorithms_root}\\\\pytorch\\\\matching_anything",
@@ -69,12 +57,13 @@
     }
   ],
   "algorithms_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\algorithms",
-  "last_input_mode": "folder",
+  "last_input_mode": "pair",
   "last_folder": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR",
   "last_pairs_txt": "C:/Users/ASUS/Desktop/pair_test.txt",
-  "last_fixed": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_1.jpg",
-  "last_moving": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_2.jpg",
+  "last_fixed": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR/pair3_1.jpg",
+  "last_moving": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR/pair3_2.jpg",
   "last_output_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\outputs",
+  "last_transform_model": "homography",
   "ransac_thresh_px": 10.0,
   "checker_tile_px": 48,
   "generate_matches_if_missing": true
