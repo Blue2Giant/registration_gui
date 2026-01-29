@@ -1,0 +1,81 @@
+{
+  "exes": [],
+  "algorithms": [
+    {
+      "name": "SRIF_EXE",
+      "command": "\"{algorithms_root}\\\\exe\\\\demo_SRIF_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "cwd": "",
+      "env_hint": "环境：Windows 可执行文件；把 demo_SRIF_func.exe 放到 algorithms\\\\exe\\\\ 下即可。"
+    },
+    {
+      "name": "3MRS_EXE",
+      "command": "\"{algorithms_root}\\\\exe\\\\demo_3MRS_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "cwd": "",
+      "env_hint": "环境：Windows 可执行文件；把 demo_3MRS_func.exe 放到 algorithms\\\\exe\\\\ 下即可。"
+    },
+    {
+      "name": "LNIFT_EXE",
+      "command": "\"{algorithms_root}\\\\exe\\\\demo_LNIFT_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "cwd": "",
+      "env_hint": "环境：Windows 可执行文件；把 demo_LNIFT_func.exe 放到 algorithms\\\\exe\\\\ 下即可。"
+    },
+    {
+      "name": "RIFT_EXE",
+      "command": "\"{algorithms_root}\\\\exe\\\\demo_RIFT_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "cwd": "",
+      "env_hint": "环境：Windows 可执行文件；把 demo_RIFT_func.exe 放到 algorithms\\\\exe\\\\ 下即可。"
+    },
+    {
+      "name": "OSSIFT_EXE",
+      "command": "\"{algorithms_root}\\\\exe\\\\demo_OSSIFT_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "cwd": "",
+      "env_hint": "环境：Windows 可执行文件；把 demo_OSSIFT_func.exe 放到 algorithms\\\\exe\\\\ 下即可。无需GPU"
+    },
+    {
+      "name": "CoFSM_EXE",
+      "command": "\"{algorithms_root}\\\\exe\\\\demo_CoFSM_func.exe\" \"{fixed}\" \"{moving}\" \"{matches_out}\"",
+      "cwd": "",
+      "env_hint": "环境：Windows 可执行文件；把 demo_CoFSM_func.exe 放到 algorithms\\\\exe\\\\ 下即可。无需GPU"
+    },
+    {
+      "name": "MATLAB_SRIF",
+      "command": "matlab -batch \"addpath(genpath('{algorithms_root}')); demo_SRIF_run('{fixed}','{moving}','{matches_out}');\"",
+      "cwd": "{algorithms_root}\\\\matlab\\\\SRIF",
+      "env_hint": "环境：需要安装 MATLAB，并确保 matlab 命令在 PATH；工程放到 algorithms\\\\matlab\\\\SRIF\\\\。"
+    },
+    {
+      "name": "PyTorch_SRIF",
+      "command": "python \"{algorithms_root}\\\\pytorch\\\\srif\\\\run.py\" --fixed \"{fixed}\" --moving \"{moving}\" --matches_out \"{matches_out}\"",
+      "cwd": "{algorithms_root}\\\\pytorch\\\\srif",
+      "env_hint": "环境：需要可用的 Python 环境（建议 conda/venv），并安装该工程依赖；脚本放到 algorithms\\\\pytorch\\\\srif\\\\。"
+    },
+    {
+      "name": "MatchAnything_ROMA",
+      "command": "python \"{algorithms_root}\\\\pytorch\\\\matching_anything\\\\gui_matchanything_wrapper.py\" --main_cfg_path \"{algorithms_root}\\\\pytorch\\\\matching_anything\\\\config.py\" --ckpt_path \"{algorithms_root}\\\\pytorch\\\\matching_anything\\\\weights\\\\matchanything_roma.ckpt\" --method matchanything_roma@-@ransac_affine --img0 \"{fixed}\" --img1 \"{moving}\" --imgresize 832 --matches_out \"{matches_out}\" --output_dir \"{out_dir}\\\\matchanything\"",
+      "cwd": "{algorithms_root}\\\\pytorch\\\\matching_anything",
+      "env_hint": "环境：需要安装 PyTorch + pytorch_lightning；权重在 algorithms\\\\pytorch\\\\matching_anything\\\\weights\\\\ 下。"
+    },
+    {
+      "name": "MATLAB_WSSF",
+      "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_func('{fixed}','{moving}','{matches_out}');\"",
+      "cwd": "{algorithms_root}\\\\matlab\\\\ljh",
+      "env_hint": "环境：需要安装 MATLAB 并确保 matlab 在 PATH；工程在 algorithms\\\\matlab\\\\ljh\\\\，入口函数 WSSF_demo_func.m。"
+    },
+    {
+      "name": "MATLAB_WSSF_tv_logtv",
+      "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_tv_logtv('{fixed}','{moving}','{matches_out}');\"",
+      "cwd": "{algorithms_root}\\\\matlab\\\\ljh",
+      "env_hint": "环境：需要安装 MATLAB 并确保 matlab 在 PATH；依赖子目录 PSATF/Others/TV（脚本会 addpath(genpath)）。入口函数 WSSF_demo_tv_logtv.m。"
+    }
+  ],
+  "algorithms_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\algorithms",
+  "last_input_mode": "folder",
+  "last_folder": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR",
+  "last_pairs_txt": "C:/Users/ASUS/Desktop/pair_test.txt",
+  "last_fixed": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_1.jpg",
+  "last_moving": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_2.jpg",
+  "last_output_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\outputs",
+  "ransac_thresh_px": 10.0,
+  "checker_tile_px": 48,
+  "generate_matches_if_missing": true
+}
