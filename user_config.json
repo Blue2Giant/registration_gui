@@ -44,6 +44,12 @@
       "env_hint": "环境：需要安装 PyTorch + pytorch_lightning；权重在 algorithms\\\\pytorch\\\\matching_anything\\\\weights\\\\ 下。"
     },
     {
+      "name": "MapGlue_PyTorch",
+      "command": "python \"{algorithms_root}\\\\pytorch\\\\MapGlue\\\\map_glue_demo.py\" \"{fixed}\" \"{moving}\" \"{matches_out}\" --device cpu",
+      "cwd": "{algorithms_root}\\\\pytorch\\\\MapGlue",
+      "env_hint": "环境：需要安装 PyTorch + OpenCV；权重在 algorithms\\\\pytorch\\\\MapGlue\\\\weights\\\\fastmapglue_model.pt。输出 matches.txt 用于后续 RANSAC 估计。"
+    },
+    {
       "name": "MATLAB_WSSF",
       "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_func('{fixed}','{moving}','{matches_out}');\"",
       "cwd": "{algorithms_root}\\\\matlab\\\\ljh",
@@ -57,7 +63,7 @@
     }
   ],
   "algorithms_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\algorithms",
-  "last_input_mode": "txt",
+  "last_input_mode": "pair",
   "last_folder": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR",
   "last_pairs_txt": "C:/Users/ASUS/Desktop/pair_test.txt",
   "last_fixed": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_1.jpg",
@@ -68,6 +74,6 @@
   "checker_tile_px": 48,
   "generate_matches_if_missing": true,
   "ransac_max_iters": 5000,
-  "ransac_confidence": 0.996,
+  "ransac_confidence": 0.995,
   "ransac_refine_iters": 10
 }

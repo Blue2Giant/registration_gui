@@ -1,80 +1,133 @@
-import cv2
-import numpy as np
-import torch
+import argparse
 from pathlib import Path
 
-
-def _make_chessboard(height: int, width: int, square: int = 32) -> np.ndarray:
-    yy, xx = np.indices((height, width))
-    board = ((yy // square) + (xx // square)) % 2
-    board = (board * 255).astype(np.uint8)
-    return cv2.cvtColor(board, cv2.COLOR_GRAY2BGR)
+import cv2
+import numpy as np
 
 
-def main():
+def _read_rgb(path: str) -> np.ndarray:
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise FileNotFoundError(str(path))
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
+def _save_matches_txt(path: str, p_fixed: np.ndarray, p_moving: np.ndarray) -> None:
+    if p_fixed.shape != p_moving.shape or p_fixed.ndim != 2 or p_fixed.shape[1] != 2:
+        raise ValueError("points shape invalid")
+    out = np.hstack([p_fixed, p_moving]).astype(np.float32)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(path, out, fmt="%.4f")
+
+
+def _create_feature_detector() -> tuple[cv2.Feature2D, str]:
+    if hasattr(cv2, "SIFT_create"):
+        return cv2.SIFT_create(), "SIFT"
+    return cv2.ORB_create(nfeatures=4000), "ORB"
+
+
+def _generate_matches_opencv(fixed_path: str, moving_path: str, max_matches: int = 2000) -> tuple[np.ndarray, np.ndarray, str]:
+    img1 = cv2.imread(str(fixed_path), cv2.IMREAD_GRAYSCALE)
+    img2 = cv2.imread(str(moving_path), cv2.IMREAD_GRAYSCALE)
+    if img1 is None or img2 is None:
+        raise ValueError("failed to read images")
+    detector, name = _create_feature_detector()
+    k1, d1 = detector.detectAndCompute(img1, None)
+    k2, d2 = detector.detectAndCompute(img2, None)
+    if d1 is None or d2 is None or len(k1) < 4 or len(k2) < 4:
+        raise ValueError("not enough features")
+
+    if name == "SIFT":
+        matcher = cv2.BFMatcher(cv2.NORM_L2)
+        knn = matcher.knnMatch(d1, d2, k=2)
+        good = []
+        for m, n in knn:
+            if m.distance < 0.75 * n.distance:
+                good.append(m)
+        good = sorted(good, key=lambda x: x.distance)[:max_matches]
+    else:
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        good = matcher.match(d1, d2)
+        good = sorted(good, key=lambda x: x.distance)[:max_matches]
+
+    if len(good) < 4:
+        raise ValueError("not enough matches")
+
+    p1 = np.asarray([k1[m.queryIdx].pt for m in good], dtype=np.float32)
+    p2 = np.asarray([k2[m.trainIdx].pt for m in good], dtype=np.float32)
+    return p1, p2, name
+
+
+def run_mapglue(
+    fixed_path: str,
+    moving_path: str,
+    matches_out: str,
+    weights_path: str,
+    num_keypoints: int = 2048,
+    device: str = "cpu",
+) -> int:
+    try:
+        import torch
+
+        model_path = Path(weights_path)
+        if not model_path.exists():
+            raise FileNotFoundError(str(model_path))
+
+        model = torch.jit.load(str(model_path), map_location=device)
+        model.eval()
+
+        fixed_rgb = _read_rgb(fixed_path)
+        moving_rgb = _read_rgb(moving_path)
+
+        fixed = torch.from_numpy(fixed_rgb)
+        moving = torch.from_numpy(moving_rgb)
+        nk = torch.tensor(int(num_keypoints))
+
+        with torch.inference_mode():
+            points_tensor = model(fixed, moving, nk)
+
+        points = points_tensor.detach().cpu().numpy().astype(np.float32)
+        if points.ndim != 2 or points.shape[1] < 4:
+            raise RuntimeError(f"Unexpected output shape: {tuple(points.shape)}")
+
+        p_fixed = points[:, 0:2]
+        p_moving = points[:, 2:4]
+
+        if p_fixed.shape[0] < 4:
+            raise RuntimeError(f"Not enough matches: {p_fixed.shape[0]}")
+
+        _save_matches_txt(matches_out, p_fixed, p_moving)
+        print(f"MapGlue matches saved: {matches_out}  pairs={p_fixed.shape[0]}")
+        return int(p_fixed.shape[0])
+    except Exception as e:
+        print(f"MapGlue unavailable ({type(e).__name__}: {e}). Falling back to OpenCV matching...")
+        p1, p2, method = _generate_matches_opencv(fixed_path, moving_path, max_matches=int(num_keypoints))
+        _save_matches_txt(matches_out, p1, p2)
+        print(f"OpenCV({method}) matches saved: {matches_out}  pairs={p1.shape[0]}")
+        return int(p1.shape[0])
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("fixed", help="Fixed/target image path")
+    parser.add_argument("moving", help="Moving/source image path")
+    parser.add_argument("matches_out", help="Output matches txt path (x1 y1 x2 y2 per line)")
+    parser.add_argument("--weights", default="", help="TorchScript weights path (.pt)")
+    parser.add_argument("--num_keypoints", type=int, default=2048)
+    parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
+    args = parser.parse_args()
+
     base_dir = Path(__file__).resolve().parent
-    model_path = base_dir / "weights" / "fastmapglue_model.pt"
-    image0_path = base_dir / "assets" / "map-visible" / "L2.png"
-    image1_path = base_dir / "assets" / "map-visible" / "R2.png"
-    out_dir = base_dir / "outputs"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    weights = args.weights.strip() or str((base_dir / "weights" / "fastmapglue_model.pt").resolve())
 
-    model = torch.jit.load(str(model_path))
-    model.eval()
-
-    image0_bgr = cv2.imread(str(image0_path), cv2.IMREAD_COLOR)
-    image1_bgr = cv2.imread(str(image1_path), cv2.IMREAD_COLOR)
-    if image0_bgr is None:
-        raise FileNotFoundError(str(image0_path))
-    if image1_bgr is None:
-        raise FileNotFoundError(str(image1_path))
-
-    image0_rgb = cv2.cvtColor(image0_bgr, cv2.COLOR_BGR2RGB)
-    image1_rgb = cv2.cvtColor(image1_bgr, cv2.COLOR_BGR2RGB)
-
-    image0 = torch.from_numpy(image0_rgb)
-    image1 = torch.from_numpy(image1_rgb)
-    num_keypoints = torch.tensor(2048)
-
-    with torch.inference_mode():
-        points_tensor = model(image0, image1, num_keypoints)
-
-    points = points_tensor.detach().cpu().numpy().astype(np.float32)
-    points0 = points[:, :2]
-    points1 = points[:, 2:4]
-
-    if points0.shape[0] < 4:
-        raise RuntimeError(f"Not enough matches: {points0.shape[0]}")
-
-    H, mask = cv2.findHomography(points0, points1, method=cv2.RANSAC, ransacReprojThreshold=3.0)
-    if H is None or mask is None:
-        raise RuntimeError("cv2.findHomography failed")
-
-    inlier_mask = mask.ravel().astype(bool)
-    inlier_indices = np.where(inlier_mask)[0].tolist()
-    if len(inlier_indices) < 4:
-        raise RuntimeError(f"Not enough inliers after RANSAC: {len(inlier_indices)}")
-
-    keypoints0 = [cv2.KeyPoint(float(x), float(y), 1) for x, y in points0]
-    keypoints1 = [cv2.KeyPoint(float(x), float(y), 1) for x, y in points1]
-    inlier_matches = [cv2.DMatch(_queryIdx=i, _trainIdx=i, _distance=0) for i in inlier_indices]
-    matches_vis = cv2.drawMatches(
-        image0_bgr,
-        keypoints0,
-        image1_bgr,
-        keypoints1,
-        inlier_matches,
-        None,
-        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+    run_mapglue(
+        fixed_path=args.fixed,
+        moving_path=args.moving,
+        matches_out=args.matches_out,
+        weights_path=weights,
+        num_keypoints=args.num_keypoints,
+        device=args.device,
     )
-    cv2.imwrite(str(out_dir / "matches_ransac.png"), matches_vis)
-
-    chessboard = _make_chessboard(image0_bgr.shape[0], image0_bgr.shape[1], square=32)
-    warped_chessboard = cv2.warpPerspective(chessboard, H, (image1_bgr.shape[1], image1_bgr.shape[0]))
-    cv2.imwrite(str(out_dir / "chessboard_warped.png"), warped_chessboard)
-
-    overlay = cv2.addWeighted(image1_bgr, 0.7, warped_chessboard, 0.3, 0.0)
-    cv2.imwrite(str(out_dir / "chessboard_overlay.png"), overlay)
 
 
 if __name__ == "__main__":

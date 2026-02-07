@@ -43,7 +43,14 @@ class AppConfig:
     def default() -> "AppConfig":
         return AppConfig(
             exes=[],
-            algorithms=[],
+            algorithms=[
+                AlgorithmEntry(
+                    name="MapGlue (PyTorch)",
+                    command="python \"{algorithms_root}\\\\pytorch\\\\MapGlue\\\\map_glue_demo.py\" \"{fixed}\" \"{moving}\" \"{matches_out}\" --device cpu",
+                    cwd="{algorithms_root}\\\\pytorch\\\\MapGlue",
+                    env_hint="环境：需要安装 PyTorch + OpenCV；权重文件放在 algorithms\\\\pytorch\\\\MapGlue\\\\weights\\\\fastmapglue_model.pt。输出 matches.txt 用于后续 RANSAC 估计。",
+                ),
+            ],
             algorithms_root=str((Path(__file__).resolve().parents[2] / "algorithms").resolve()),
             last_input_mode="folder",
             last_folder="",
@@ -101,7 +108,7 @@ def load_config() -> AppConfig:
 
     if algos:
         cfg.algorithms = algos
-    else:
+    elif exes:
         # Backward compatibility: convert old "exes" list into generic algorithms
         cfg.algorithms = [
             AlgorithmEntry(
