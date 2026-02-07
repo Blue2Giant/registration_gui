@@ -57,14 +57,17 @@
     }
   ],
   "algorithms_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\algorithms",
-  "last_input_mode": "pair",
+  "last_input_mode": "txt",
   "last_folder": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR",
   "last_pairs_txt": "C:/Users/ASUS/Desktop/pair_test.txt",
-  "last_fixed": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR/pair3_1.jpg",
-  "last_moving": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR/pair3_2.jpg",
+  "last_fixed": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_1.jpg",
+  "last_moving": "D:\\hand_craft_registration\\SRIF-master\\dataset\\Optical-Optical\\pair194_2.jpg",
   "last_output_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\outputs",
   "last_transform_model": "homography",
   "ransac_thresh_px": 10.0,
   "checker_tile_px": 48,
-  "generate_matches_if_missing": true
+  "generate_matches_if_missing": true,
+  "ransac_max_iters": 5000,
+  "ransac_confidence": 0.996,
+  "ransac_refine_iters": 10
 }

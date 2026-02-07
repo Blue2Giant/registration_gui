@@ -32,6 +32,7 @@ class MainWindow(tk.Tk):
         self.current_pipeline: RegistrationPipeline | None = None
         self.last_outputs: TaskOutputs | None = None
         self.cancel_flag = False
+        self._ransac_syncing = False
 
         self.compare_zoom: float | None = None
         self.compare_offset_x: float = 0.0
@@ -90,6 +91,15 @@ class MainWindow(tk.Tk):
         style.map("Primary.TButton", background=[("active", "#153E7E")]) # Darker Fudan Blue
         
         style.configure("Toggle.TButton", font=("Segoe UI", 10, "bold"), padding=8)
+        style.configure("RansacParam.TLabel", background=BG_COLOR, foreground=ACCENT_COLOR, font=("Segoe UI", 10, "bold"))
+        style.configure("RansacHelp.TLabel", background=BG_COLOR, foreground="#6B7280", font=("Segoe UI", 8))
+        style.configure(
+            "Ransac.TSpinbox",
+            foreground=ACCENT_COLOR,
+            fieldbackground="white",
+            font=("Consolas", 10, "bold"),
+            padding=2,
+        )
 
     def _setup_ui(self):
         # Header / Logo Area
@@ -229,7 +239,115 @@ class MainWindow(tk.Tk):
             textvariable=self.transform_model_var,
         )
         self.transform_combo.pack(fill=tk.X, padx=10, pady=8)
-        self.transform_combo.bind("<<ComboboxSelected>>", lambda e: self._save_config())
+        self.transform_combo.bind("<<ComboboxSelected>>", lambda e: (self._update_ransac_controls_state(), self._save_config()))
+        self.transform_model_var.trace_add("write", lambda *args: self._update_ransac_controls_state())
+
+        ransac_group = ttk.LabelFrame(container, text="RANSAC (OpenCV)")
+        ransac_group.pack(fill=tk.X, pady=5)
+
+        self.ransac_thresh_var = tk.DoubleVar(value=float(self.config.ransac_thresh_px))
+        self.ransac_max_iters_var = tk.IntVar(value=int(self.config.ransac_max_iters))
+        self.ransac_confidence_var = tk.DoubleVar(value=float(self.config.ransac_confidence))
+        self.ransac_refine_iters_var = tk.IntVar(value=int(self.config.ransac_refine_iters))
+
+        r1 = ttk.Frame(ransac_group)
+        r1.pack(fill=tk.X, padx=10, pady=(8, 0))
+        ttk.Label(r1, text="阈值 thresh (px)", style="RansacParam.TLabel").pack(side=tk.LEFT)
+        self.spin_ransac_thresh = ttk.Spinbox(
+            r1,
+            from_=0.1,
+            to=9999.0,
+            increment=0.5,
+            textvariable=self.ransac_thresh_var,
+            width=12,
+            command=self._on_ransac_params_change,
+            style="Ransac.TSpinbox",
+        )
+        self.spin_ransac_thresh.pack(side=tk.RIGHT)
+        ttk.Label(
+            ransac_group,
+            text="决定“内点”的最大重投影误差阈值（像素）。增大→内点更多但可能更不准；减小→更严格但可能失败。",
+            style="RansacHelp.TLabel",
+            wraplength=280,
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+
+        r2 = ttk.Frame(ransac_group)
+        r2.pack(fill=tk.X, padx=10, pady=(2, 0))
+        ttk.Label(r2, text="maxIters", style="RansacParam.TLabel").pack(side=tk.LEFT)
+        self.spin_ransac_max_iters = ttk.Spinbox(
+            r2,
+            from_=1,
+            to=200000,
+            increment=100,
+            textvariable=self.ransac_max_iters_var,
+            width=12,
+            command=self._on_ransac_params_change,
+            style="Ransac.TSpinbox",
+        )
+        self.spin_ransac_max_iters.pack(side=tk.RIGHT)
+        ttk.Label(
+            ransac_group,
+            text="RANSAC 最大迭代次数。增大→更稳但更慢；减小→更快但在外点多时更易失败。",
+            style="RansacHelp.TLabel",
+            wraplength=280,
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+
+        r3 = ttk.Frame(ransac_group)
+        r3.pack(fill=tk.X, padx=10, pady=(2, 0))
+        ttk.Label(r3, text="confidence", style="RansacParam.TLabel").pack(side=tk.LEFT)
+        self.spin_ransac_confidence = ttk.Spinbox(
+            r3,
+            from_=0.50,
+            to=0.9999,
+            increment=0.001,
+            format="%.4f",
+            textvariable=self.ransac_confidence_var,
+            width=12,
+            command=self._on_ransac_params_change,
+            style="Ransac.TSpinbox",
+        )
+        self.spin_ransac_confidence.pack(side=tk.RIGHT)
+        ttk.Label(
+            ransac_group,
+            text="成功概率期望。更接近 1 通常更稳但更慢；过低可能更快但更容易不准/失败。",
+            style="RansacHelp.TLabel",
+            wraplength=280,
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+
+        r4 = ttk.Frame(ransac_group)
+        r4.pack(fill=tk.X, padx=10, pady=(2, 0))
+        ttk.Label(r4, text="refineIters (affine)", style="RansacParam.TLabel").pack(side=tk.LEFT)
+        self.spin_ransac_refine_iters = ttk.Spinbox(
+            r4,
+            from_=0,
+            to=1000,
+            increment=1,
+            textvariable=self.ransac_refine_iters_var,
+            width=12,
+            command=self._on_ransac_params_change,
+            style="Ransac.TSpinbox",
+        )
+        self.spin_ransac_refine_iters.pack(side=tk.RIGHT)
+        ttk.Label(
+            ransac_group,
+            text="仅 affine 使用：在内点上做迭代优化。增大→可能更准但更慢。",
+            style="RansacHelp.TLabel",
+            wraplength=280,
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=12, pady=(0, 6))
+
+        btn_row = ttk.Frame(ransac_group)
+        btn_row.pack(fill=tk.X, padx=10, pady=(2, 8))
+        ttk.Button(btn_row, text="Reset Defaults", command=self._reset_ransac_defaults).pack(side=tk.RIGHT)
+
+        self.ransac_thresh_var.trace_add("write", lambda *args: self._on_ransac_params_change())
+        self.ransac_max_iters_var.trace_add("write", lambda *args: self._on_ransac_params_change())
+        self.ransac_confidence_var.trace_add("write", lambda *args: self._on_ransac_params_change())
+        self.ransac_refine_iters_var.trace_add("write", lambda *args: self._on_ransac_params_change())
+        self._update_ransac_controls_state()
 
         # Input Mode
         input_group = ttk.LabelFrame(container, text="Input Data")
@@ -733,6 +851,9 @@ class MainWindow(tk.Tk):
             output_dir=out_dir,
             transform_model=self.transform_model_var.get(),
             ransac_thresh_px=self.config.ransac_thresh_px,
+            ransac_max_iters=self.config.ransac_max_iters,
+            ransac_confidence=self.config.ransac_confidence,
+            ransac_refine_iters=self.config.ransac_refine_iters,
             checker_tile_px=self.config.checker_tile_px,
             points_fixed=np.asarray(self.manual_points_fixed, dtype=np.float32),
             points_moving=np.asarray(self.manual_points_moving, dtype=np.float32),
@@ -1065,6 +1186,12 @@ class MainWindow(tk.Tk):
         self._update_algo_hint()
 
         self.transform_model_var.set(self.config.last_transform_model or "affine")
+        if hasattr(self, "ransac_thresh_var"):
+            self.ransac_thresh_var.set(float(self.config.ransac_thresh_px))
+            self.ransac_max_iters_var.set(int(self.config.ransac_max_iters))
+            self.ransac_confidence_var.set(float(self.config.ransac_confidence))
+            self.ransac_refine_iters_var.set(int(self.config.ransac_refine_iters))
+            self._update_ransac_controls_state()
             
         self.mode_var.set(self.config.last_input_mode)
         self._on_mode_change()
@@ -1182,7 +1309,78 @@ class MainWindow(tk.Tk):
         self.config.last_fixed = self.fixed_path_var.get()
         self.config.last_moving = self.moving_path_var.get()
         self.config.last_transform_model = self.transform_model_var.get()
+        if hasattr(self, "ransac_thresh_var"):
+            self._sync_ransac_config_from_ui()
         save_config(self.config)
+
+    def _sync_ransac_config_from_ui(self) -> None:
+        try:
+            thresh = float(self.ransac_thresh_var.get())
+        except Exception:
+            thresh = float(self.config.ransac_thresh_px)
+        if not np.isfinite(thresh) or thresh <= 0:
+            thresh = 0.1
+
+        try:
+            max_iters = int(self.ransac_max_iters_var.get())
+        except Exception:
+            max_iters = int(self.config.ransac_max_iters)
+        if max_iters < 1:
+            max_iters = 1
+
+        try:
+            confidence = float(self.ransac_confidence_var.get())
+        except Exception:
+            confidence = float(self.config.ransac_confidence)
+        if not np.isfinite(confidence) or not (0.0 < confidence < 1.0):
+            confidence = 0.995
+
+        try:
+            refine_iters = int(self.ransac_refine_iters_var.get())
+        except Exception:
+            refine_iters = int(self.config.ransac_refine_iters)
+        if refine_iters < 0:
+            refine_iters = 0
+
+        self.config.ransac_thresh_px = float(thresh)
+        self.config.ransac_max_iters = int(max_iters)
+        self.config.ransac_confidence = float(confidence)
+        self.config.ransac_refine_iters = int(refine_iters)
+
+        self.ransac_thresh_var.set(self.config.ransac_thresh_px)
+        self.ransac_max_iters_var.set(self.config.ransac_max_iters)
+        self.ransac_confidence_var.set(self.config.ransac_confidence)
+        self.ransac_refine_iters_var.set(self.config.ransac_refine_iters)
+        self._update_ransac_controls_state()
+
+    def _on_ransac_params_change(self) -> None:
+        if self._ransac_syncing:
+            return
+        self._ransac_syncing = True
+        try:
+            self._sync_ransac_config_from_ui()
+            save_config(self.config)
+        finally:
+            self._ransac_syncing = False
+
+    def _reset_ransac_defaults(self) -> None:
+        d = AppConfig.default()
+        self.ransac_thresh_var.set(float(d.ransac_thresh_px))
+        self.ransac_max_iters_var.set(int(d.ransac_max_iters))
+        self.ransac_confidence_var.set(float(d.ransac_confidence))
+        self.ransac_refine_iters_var.set(int(d.ransac_refine_iters))
+        self._on_ransac_params_change()
+
+    def _update_ransac_controls_state(self) -> None:
+        m = (self.transform_model_var.get() or "").strip().lower()
+        use_ransac = m in ("affine", "homography")
+        state = "normal" if use_ransac else "disabled"
+        refine_state = "normal" if m == "affine" else "disabled"
+        if hasattr(self, "spin_ransac_thresh"):
+            self.spin_ransac_thresh.config(state=state)
+            self.spin_ransac_max_iters.config(state=state)
+            self.spin_ransac_confidence.config(state=state)
+            self.spin_ransac_refine_iters.config(state=refine_state if use_ransac else "disabled")
 
     def _log(self, msg):
         self.queue.put(("log", msg))
@@ -1254,6 +1452,9 @@ class MainWindow(tk.Tk):
             output_dir=out_dir,
             repo_root=str(Path.cwd()),
             ransac_thresh_px=self.config.ransac_thresh_px,
+            ransac_max_iters=self.config.ransac_max_iters,
+            ransac_confidence=self.config.ransac_confidence,
+            ransac_refine_iters=self.config.ransac_refine_iters,
             checker_tile_px=self.config.checker_tile_px,
             generate_matches_if_missing=self.config.generate_matches_if_missing,
         )
@@ -1337,6 +1538,9 @@ class MainWindow(tk.Tk):
             output_dir=out_dir,
             repo_root=str(Path.cwd()),
             ransac_thresh_px=self.config.ransac_thresh_px,
+            ransac_max_iters=self.config.ransac_max_iters,
+            ransac_confidence=self.config.ransac_confidence,
+            ransac_refine_iters=self.config.ransac_refine_iters,
             checker_tile_px=self.config.checker_tile_px,
             generate_matches_if_missing=self.config.generate_matches_if_missing,
         )

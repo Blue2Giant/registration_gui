@@ -39,6 +39,8 @@ def draw_matches_side_by_side(
     canvas[: moving_bgr.shape[0], fixed_bgr.shape[1] : fixed_bgr.shape[1] + moving_bgr.shape[1]] = moving_bgr
 
     offset_x = fixed_bgr.shape[1]
+    h1, w1 = fixed_bgr.shape[0], fixed_bgr.shape[1]
+    h2, w2 = moving_bgr.shape[0], moving_bgr.shape[1]
     p1i = np.round(p1).astype(int)
     p2i = np.round(p2).astype(int)
     inlier_mask = inlier_mask.astype(bool)
@@ -48,6 +50,11 @@ def draw_matches_side_by_side(
         a = (int(p1i[i, 0]), int(p1i[i, 1]))
         b = (int(p2i[i, 0] + offset_x), int(p2i[i, 1]))
         color = (0, 255, 0) if inlier_mask[i] else (0, 0, 255) # Green for inliers, Red for outliers
+
+        if a[0] < 0 or a[0] >= w1 or a[1] < 0 or a[1] >= h1:
+            continue
+        if p2i[i, 0] < 0 or p2i[i, 0] >= w2 or p2i[i, 1] < 0 or p2i[i, 1] >= h2:
+            continue
         
         # Only draw outliers if there are few points, otherwise it gets too messy
         if not inlier_mask[i] and p1i.shape[0] > 100:

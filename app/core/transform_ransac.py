@@ -14,7 +14,15 @@ class TransformEstimation:
     rmse: float
 
 
-def estimate_transform_3x3_ransac(points1: np.ndarray, points2: np.ndarray, model: str, thresh_px: float) -> TransformEstimation:
+def estimate_transform_3x3_ransac(
+    points1: np.ndarray,
+    points2: np.ndarray,
+    model: str,
+    thresh_px: float,
+    ransac_max_iters: int = 5000,
+    ransac_confidence: float = 0.995,
+    ransac_refine_iters: int = 10,
+) -> TransformEstimation:
     m = (model or "").strip().lower()
     if m not in ("affine", "homography"):
         raise ValueError("model must be 'affine' or 'homography'")
@@ -27,6 +35,16 @@ def estimate_transform_3x3_ransac(points1: np.ndarray, points2: np.ndarray, mode
     finite = np.isfinite(p1).all(axis=1) & np.isfinite(p2).all(axis=1)
     p1 = p1[finite]
     p2 = p2[finite]
+
+    max_iters = int(ransac_max_iters)
+    if max_iters < 1:
+        raise ValueError("ransac_max_iters must be >= 1")
+    confidence = float(ransac_confidence)
+    if not (0.0 < confidence < 1.0):
+        raise ValueError("ransac_confidence must be in (0, 1)")
+    refine_iters = int(ransac_refine_iters)
+    if refine_iters < 0:
+        raise ValueError("ransac_refine_iters must be >= 0")
 
     if m == "affine":
         if p1.shape[0] < 3:
@@ -42,9 +60,9 @@ def estimate_transform_3x3_ransac(points1: np.ndarray, points2: np.ndarray, mode
                 p2c,
                 method=cv2.RANSAC,
                 ransacReprojThreshold=float(thresh_px),
-                maxIters=5000,
-                confidence=0.995,
-                refineIters=10,
+                maxIters=max_iters,
+                confidence=confidence,
+                refineIters=refine_iters,
             )
         except cv2.error:
             p1r = p1c.reshape(-1, 1, 2)
@@ -55,9 +73,9 @@ def estimate_transform_3x3_ransac(points1: np.ndarray, points2: np.ndarray, mode
                     p2r,
                     method=cv2.RANSAC,
                     ransacReprojThreshold=float(thresh_px),
-                    maxIters=5000,
-                    confidence=0.995,
-                    refineIters=10,
+                    maxIters=max_iters,
+                    confidence=confidence,
+                    refineIters=refine_iters,
                 )
             except cv2.error:
                 M, inliers = cv2.estimateAffinePartial2D(
@@ -65,9 +83,9 @@ def estimate_transform_3x3_ransac(points1: np.ndarray, points2: np.ndarray, mode
                     p2c,
                     method=cv2.RANSAC,
                     ransacReprojThreshold=float(thresh_px),
-                    maxIters=5000,
-                    confidence=0.995,
-                    refineIters=10,
+                    maxIters=max_iters,
+                    confidence=confidence,
+                    refineIters=refine_iters,
                 )
 
         if M is None:
@@ -89,8 +107,8 @@ def estimate_transform_3x3_ransac(points1: np.ndarray, points2: np.ndarray, mode
         p2c,
         method=cv2.RANSAC,
         ransacReprojThreshold=float(thresh_px),
-        maxIters=5000,
-        confidence=0.995,
+        maxIters=max_iters,
+        confidence=confidence,
     )
     if H is None or inliers is None:
         raise ValueError("findHomography failed")
@@ -109,4 +127,3 @@ def _rmse_reproj(H_3x3: np.ndarray, p1: np.ndarray, p2: np.ndarray, inlier_mask:
     if inlier_mask.any():
         return float(np.sqrt(np.mean(np.square(err[inlier_mask]))))
     return float(np.sqrt(np.mean(np.square(err))))
-

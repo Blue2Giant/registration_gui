@@ -33,6 +33,9 @@ class AppConfig:
     last_output_root: str
     last_transform_model: str
     ransac_thresh_px: float
+    ransac_max_iters: int
+    ransac_confidence: float
+    ransac_refine_iters: int
     checker_tile_px: int
     generate_matches_if_missing: bool
 
@@ -50,6 +53,9 @@ class AppConfig:
             last_output_root=str((Path(__file__).resolve().parents[2] / "outputs").resolve()),
             last_transform_model="affine",
             ransac_thresh_px=10.0,
+            ransac_max_iters=5000,
+            ransac_confidence=0.995,
+            ransac_refine_iters=10,
             checker_tile_px=48,
             generate_matches_if_missing=True,
         )
@@ -115,6 +121,9 @@ def load_config() -> AppConfig:
     cfg.last_output_root = str(raw.get("last_output_root", cfg.last_output_root))
     cfg.last_transform_model = str(raw.get("last_transform_model", cfg.last_transform_model))
     cfg.ransac_thresh_px = float(raw.get("ransac_thresh_px", cfg.ransac_thresh_px))
+    cfg.ransac_max_iters = int(raw.get("ransac_max_iters", cfg.ransac_max_iters))
+    cfg.ransac_confidence = float(raw.get("ransac_confidence", cfg.ransac_confidence))
+    cfg.ransac_refine_iters = int(raw.get("ransac_refine_iters", cfg.ransac_refine_iters))
     cfg.checker_tile_px = int(raw.get("checker_tile_px", cfg.checker_tile_px))
     cfg.generate_matches_if_missing = bool(raw.get("generate_matches_if_missing", cfg.generate_matches_if_missing))
     return cfg
@@ -145,6 +154,9 @@ def save_config(cfg: AppConfig) -> None:
     payload["last_output_root"] = cfg.last_output_root
     payload["last_transform_model"] = cfg.last_transform_model
     payload["ransac_thresh_px"] = cfg.ransac_thresh_px
+    payload["ransac_max_iters"] = cfg.ransac_max_iters
+    payload["ransac_confidence"] = cfg.ransac_confidence
+    payload["ransac_refine_iters"] = cfg.ransac_refine_iters
     payload["checker_tile_px"] = cfg.checker_tile_px
     payload["generate_matches_if_missing"] = cfg.generate_matches_if_missing
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

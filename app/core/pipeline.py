@@ -24,6 +24,9 @@ class TaskInputs:
     output_dir: str
     repo_root: str
     ransac_thresh_px: float
+    ransac_max_iters: int
+    ransac_confidence: float
+    ransac_refine_iters: int
     checker_tile_px: int
     generate_matches_if_missing: bool
 
@@ -125,7 +128,22 @@ class RegistrationPipeline:
             log_wrapper(f"Matches resolved: {mr.points1.shape[0]} points (Source: {mr.source})")
 
             # 3. Estimate Transform
-            est = estimate_transform_3x3(mr.points1, mr.points2, self._in.transform_model, self._in.ransac_thresh_px)
+            log_wrapper(
+                f"Transform: {self._in.transform_model}  "
+                f"RANSAC(thresh_px={self._in.ransac_thresh_px}, "
+                f"max_iters={self._in.ransac_max_iters}, "
+                f"confidence={self._in.ransac_confidence}, "
+                f"refine_iters={self._in.ransac_refine_iters})"
+            )
+            est = estimate_transform_3x3(
+                mr.points2,
+                mr.points1,
+                self._in.transform_model,
+                self._in.ransac_thresh_px,
+                ransac_max_iters=self._in.ransac_max_iters,
+                ransac_confidence=self._in.ransac_confidence,
+                ransac_refine_iters=self._in.ransac_refine_iters,
+            )
             log_wrapper(f"{est.model} estimated. Inliers: {int(est.inlier_mask.sum())}, RMSE: {est.rmse:.4f}")
 
             H_path = str((out_dir / f"H_{est.model}_3x3.txt").resolve())

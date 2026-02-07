@@ -13,7 +13,14 @@ class AffineEstimation:
     rmse: float
 
 
-def estimate_affine_3x3_ransac(points1: np.ndarray, points2: np.ndarray, thresh_px: float) -> AffineEstimation:
+def estimate_affine_3x3_ransac(
+    points1: np.ndarray,
+    points2: np.ndarray,
+    thresh_px: float,
+    ransac_max_iters: int = 5000,
+    ransac_confidence: float = 0.995,
+    ransac_refine_iters: int = 10,
+) -> AffineEstimation:
     p1 = np.asarray(points1, dtype=np.float32).reshape(-1, 2)
     p2 = np.asarray(points2, dtype=np.float32).reshape(-1, 2)
     if p1.shape != p2.shape or p1.ndim != 2 or p1.shape[1] != 2:
@@ -28,6 +35,16 @@ def estimate_affine_3x3_ransac(points1: np.ndarray, points2: np.ndarray, thresh_
     p1c = np.ascontiguousarray(p1, dtype=np.float32)
     p2c = np.ascontiguousarray(p2, dtype=np.float32)
 
+    max_iters = int(ransac_max_iters)
+    if max_iters < 1:
+        raise ValueError("ransac_max_iters must be >= 1")
+    confidence = float(ransac_confidence)
+    if not (0.0 < confidence < 1.0):
+        raise ValueError("ransac_confidence must be in (0, 1)")
+    refine_iters = int(ransac_refine_iters)
+    if refine_iters < 0:
+        raise ValueError("ransac_refine_iters must be >= 0")
+
     M = None
     inliers = None
     try:
@@ -36,9 +53,9 @@ def estimate_affine_3x3_ransac(points1: np.ndarray, points2: np.ndarray, thresh_
             p2c,
             method=cv2.RANSAC,
             ransacReprojThreshold=float(thresh_px),
-            maxIters=5000,
-            confidence=0.995,
-            refineIters=10,
+            maxIters=max_iters,
+            confidence=confidence,
+            refineIters=refine_iters,
         )
     except cv2.error:
         p1r = p1c.reshape(-1, 1, 2)
@@ -49,9 +66,9 @@ def estimate_affine_3x3_ransac(points1: np.ndarray, points2: np.ndarray, thresh_
                 p2r,
                 method=cv2.RANSAC,
                 ransacReprojThreshold=float(thresh_px),
-                maxIters=5000,
-                confidence=0.995,
-                refineIters=10,
+                maxIters=max_iters,
+                confidence=confidence,
+                refineIters=refine_iters,
             )
         except cv2.error:
             M, inliers = cv2.estimateAffinePartial2D(
@@ -59,9 +76,9 @@ def estimate_affine_3x3_ransac(points1: np.ndarray, points2: np.ndarray, thresh_
                 p2c,
                 method=cv2.RANSAC,
                 ransacReprojThreshold=float(thresh_px),
-                maxIters=5000,
-                confidence=0.995,
-                refineIters=10,
+                maxIters=max_iters,
+                confidence=confidence,
+                refineIters=refine_iters,
             )
     
     if M is None:

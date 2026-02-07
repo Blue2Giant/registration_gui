@@ -18,6 +18,9 @@ class ManualInputs:
     output_dir: str
     transform_model: str
     ransac_thresh_px: float
+    ransac_max_iters: int
+    ransac_confidence: float
+    ransac_refine_iters: int
     checker_tile_px: int
     points_fixed: np.ndarray
     points_moving: np.ndarray
@@ -59,7 +62,12 @@ class ManualRegistrationPipeline:
         try:
             log_wrapper("=== Manual Task Started ===")
             log_wrapper(f"Transform model: {self._in.transform_model}")
-            log_wrapper(f"RANSAC thresh: {self._in.ransac_thresh_px}")
+            log_wrapper(
+                f"RANSAC: thresh_px={self._in.ransac_thresh_px}, "
+                f"max_iters={self._in.ransac_max_iters}, "
+                f"confidence={self._in.ransac_confidence}, "
+                f"refine_iters={self._in.ransac_refine_iters}"
+            )
 
             if self._is_cancelled():
                 self._on_error("Task cancelled by user.")
@@ -77,7 +85,15 @@ class ManualRegistrationPipeline:
             np.savetxt(matches_path, matches, fmt="%.4f")
             log_wrapper(f"Manual matches saved: {matches_path}  pairs={matches.shape[0]}")
 
-            est = estimate_transform_3x3(p_fixed, p_moving, self._in.transform_model, self._in.ransac_thresh_px)
+            est = estimate_transform_3x3(
+                p_moving,
+                p_fixed,
+                self._in.transform_model,
+                self._in.ransac_thresh_px,
+                ransac_max_iters=self._in.ransac_max_iters,
+                ransac_confidence=self._in.ransac_confidence,
+                ransac_refine_iters=self._in.ransac_refine_iters,
+            )
             log_wrapper(f"{est.model} estimated. Inliers: {int(est.inlier_mask.sum())}, RMSE: {est.rmse:.4f}")
 
             H_path = str((out_dir / f"H_{est.model}_3x3.txt").resolve())
