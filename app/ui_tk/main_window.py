@@ -42,6 +42,9 @@ class MainWindow(tk.Tk):
         self.compare_canvas_photo: ImageTk.PhotoImage | None = None
         self.compare_pan_start: tuple[int, int, float, float] | None = None
         self.left_scroll_active: bool = False
+        self._ui_scale_base: float = float(self.tk.call("tk", "scaling"))
+        self._ui_scale_min: float = 0.6
+        self._ui_scale_max: float = 2.5
 
         self.batch_active: bool = False
         self.batch_pairs: list[ImagePair] = []
@@ -72,6 +75,7 @@ class MainWindow(tk.Tk):
         self._setup_styles()
         self._setup_ui()
         self._load_state()
+        self.bind_all("<Control-0>", lambda _e: self._reset_ui_scale(), add="+")
         self.fixed_path_var.trace_add("write", lambda *args: self._update_thumbnail(self.fixed_path_var.get(), self.lbl_fixed_thumb))
         self.moving_path_var.trace_add("write", lambda *args: self._update_thumbnail(self.moving_path_var.get(), self.lbl_moving_thumb))
         
@@ -100,6 +104,38 @@ class MainWindow(tk.Tk):
             font=("Consolas", 10, "bold"),
             padding=2,
         )
+
+    def _is_ctrl_pressed(self, event) -> bool:
+        return bool(int(getattr(event, "state", 0)) & 0x0004)
+
+    def _ui_zoom_steps(self, steps: int) -> None:
+        if steps == 0:
+            return
+        try:
+            current = float(self.tk.call("tk", "scaling"))
+        except Exception:
+            current = self._ui_scale_base
+        factor = 1.10 ** int(steps)
+        new_scale = float(current * factor)
+        new_scale = max(self._ui_scale_min, min(self._ui_scale_max, new_scale))
+        if abs(new_scale - current) < 1e-6:
+            return
+        self.tk.call("tk", "scaling", new_scale)
+        self.after_idle(self._refresh_after_ui_scale)
+
+    def _reset_ui_scale(self) -> None:
+        self.tk.call("tk", "scaling", float(self._ui_scale_base))
+        self.after_idle(self._refresh_after_ui_scale)
+
+    def _refresh_after_ui_scale(self) -> None:
+        try:
+            self._render_compare_view()
+        except Exception:
+            pass
+        try:
+            self._manual_render()
+        except Exception:
+            pass
 
     def _setup_ui(self):
         # Header / Logo Area
@@ -178,16 +214,19 @@ class MainWindow(tk.Tk):
             self.left_scroll_active = False
 
         def _on_left_wheel(event):
-            if not self.left_scroll_active:
-                return
-            if not self.left_canvas.winfo_viewable():
-                return
             delta = event.delta
             if not delta:
                 return
             steps = int(delta / 120)
             if steps == 0:
                 steps = 1 if delta > 0 else -1
+            if self._is_ctrl_pressed(event):
+                self._ui_zoom_steps(steps)
+                return "break"
+            if not self.left_scroll_active:
+                return
+            if not self.left_canvas.winfo_viewable():
+                return
             self.left_canvas.yview_scroll(-steps, "units")
 
         scroll_host.bind("<Enter>", _on_left_enter)
@@ -245,10 +284,10 @@ class MainWindow(tk.Tk):
         ransac_group = ttk.LabelFrame(container, text="RANSAC (OpenCV)")
         ransac_group.pack(fill=tk.X, pady=5)
 
-        self.ransac_thresh_var = tk.DoubleVar(value=float(self.config.ransac_thresh_px))
-        self.ransac_max_iters_var = tk.IntVar(value=int(self.config.ransac_max_iters))
-        self.ransac_confidence_var = tk.DoubleVar(value=float(self.config.ransac_confidence))
-        self.ransac_refine_iters_var = tk.IntVar(value=int(self.config.ransac_refine_iters))
+        self.ransac_thresh_var = tk.StringVar(value=f"{float(self.config.ransac_thresh_px):g}")
+        self.ransac_max_iters_var = tk.StringVar(value=str(int(self.config.ransac_max_iters)))
+        self.ransac_confidence_var = tk.StringVar(value=f"{float(self.config.ransac_confidence):.4f}")
+        self.ransac_refine_iters_var = tk.StringVar(value=str(int(self.config.ransac_refine_iters)))
 
         r1 = ttk.Frame(ransac_group)
         r1.pack(fill=tk.X, padx=10, pady=(8, 0))
@@ -260,10 +299,12 @@ class MainWindow(tk.Tk):
             increment=0.5,
             textvariable=self.ransac_thresh_var,
             width=12,
-            command=self._on_ransac_params_change,
+            command=self._on_ransac_params_commit,
             style="Ransac.TSpinbox",
         )
         self.spin_ransac_thresh.pack(side=tk.RIGHT)
+        self.spin_ransac_thresh.bind("<Return>", lambda _e: self._on_ransac_params_commit())
+        self.spin_ransac_thresh.bind("<FocusOut>", lambda _e: self._on_ransac_params_commit())
         ttk.Label(
             ransac_group,
             text="决定“内点”的最大重投影误差阈值（像素）。增大→内点更多但可能更不准；减小→更严格但可能失败。",
@@ -282,10 +323,12 @@ class MainWindow(tk.Tk):
             increment=100,
             textvariable=self.ransac_max_iters_var,
             width=12,
-            command=self._on_ransac_params_change,
+            command=self._on_ransac_params_commit,
             style="Ransac.TSpinbox",
         )
         self.spin_ransac_max_iters.pack(side=tk.RIGHT)
+        self.spin_ransac_max_iters.bind("<Return>", lambda _e: self._on_ransac_params_commit())
+        self.spin_ransac_max_iters.bind("<FocusOut>", lambda _e: self._on_ransac_params_commit())
         ttk.Label(
             ransac_group,
             text="RANSAC 最大迭代次数。增大→更稳但更慢；减小→更快但在外点多时更易失败。",
@@ -305,10 +348,12 @@ class MainWindow(tk.Tk):
             format="%.4f",
             textvariable=self.ransac_confidence_var,
             width=12,
-            command=self._on_ransac_params_change,
+            command=self._on_ransac_params_commit,
             style="Ransac.TSpinbox",
         )
         self.spin_ransac_confidence.pack(side=tk.RIGHT)
+        self.spin_ransac_confidence.bind("<Return>", lambda _e: self._on_ransac_params_commit())
+        self.spin_ransac_confidence.bind("<FocusOut>", lambda _e: self._on_ransac_params_commit())
         ttk.Label(
             ransac_group,
             text="成功概率期望。更接近 1 通常更稳但更慢；过低可能更快但更容易不准/失败。",
@@ -327,10 +372,12 @@ class MainWindow(tk.Tk):
             increment=1,
             textvariable=self.ransac_refine_iters_var,
             width=12,
-            command=self._on_ransac_params_change,
+            command=self._on_ransac_params_commit,
             style="Ransac.TSpinbox",
         )
         self.spin_ransac_refine_iters.pack(side=tk.RIGHT)
+        self.spin_ransac_refine_iters.bind("<Return>", lambda _e: self._on_ransac_params_commit())
+        self.spin_ransac_refine_iters.bind("<FocusOut>", lambda _e: self._on_ransac_params_commit())
         ttk.Label(
             ransac_group,
             text="仅 affine 使用：在内点上做迭代优化。增大→可能更准但更慢。",
@@ -342,11 +389,6 @@ class MainWindow(tk.Tk):
         btn_row = ttk.Frame(ransac_group)
         btn_row.pack(fill=tk.X, padx=10, pady=(2, 8))
         ttk.Button(btn_row, text="Reset Defaults", command=self._reset_ransac_defaults).pack(side=tk.RIGHT)
-
-        self.ransac_thresh_var.trace_add("write", lambda *args: self._on_ransac_params_change())
-        self.ransac_max_iters_var.trace_add("write", lambda *args: self._on_ransac_params_change())
-        self.ransac_confidence_var.trace_add("write", lambda *args: self._on_ransac_params_change())
-        self.ransac_refine_iters_var.trace_add("write", lambda *args: self._on_ransac_params_change())
         self._update_ransac_controls_state()
 
         # Input Mode
@@ -836,6 +878,8 @@ class MainWindow(tk.Tk):
         self._manual_render()
 
     def _manual_apply(self) -> None:
+        if hasattr(self, "ransac_thresh_var"):
+            self._on_ransac_params_commit()
         if self.manual_fixed_img is None or self.manual_moving_img is None:
             messagebox.showerror("Error", "Please select a valid pair first.")
             return
@@ -1187,10 +1231,10 @@ class MainWindow(tk.Tk):
 
         self.transform_model_var.set(self.config.last_transform_model or "affine")
         if hasattr(self, "ransac_thresh_var"):
-            self.ransac_thresh_var.set(float(self.config.ransac_thresh_px))
-            self.ransac_max_iters_var.set(int(self.config.ransac_max_iters))
-            self.ransac_confidence_var.set(float(self.config.ransac_confidence))
-            self.ransac_refine_iters_var.set(int(self.config.ransac_refine_iters))
+            self.ransac_thresh_var.set(f"{float(self.config.ransac_thresh_px):g}")
+            self.ransac_max_iters_var.set(str(int(self.config.ransac_max_iters)))
+            self.ransac_confidence_var.set(f"{float(self.config.ransac_confidence):.4f}")
+            self.ransac_refine_iters_var.set(str(int(self.config.ransac_refine_iters)))
             self._update_ransac_controls_state()
             
         self.mode_var.set(self.config.last_input_mode)
@@ -1309,34 +1353,36 @@ class MainWindow(tk.Tk):
         self.config.last_fixed = self.fixed_path_var.get()
         self.config.last_moving = self.moving_path_var.get()
         self.config.last_transform_model = self.transform_model_var.get()
-        if hasattr(self, "ransac_thresh_var"):
-            self._sync_ransac_config_from_ui()
         save_config(self.config)
 
     def _sync_ransac_config_from_ui(self) -> None:
         try:
-            thresh = float(self.ransac_thresh_var.get())
+            s = (self.ransac_thresh_var.get() or "").strip()
+            thresh = float(s) if s else float(self.config.ransac_thresh_px)
         except Exception:
             thresh = float(self.config.ransac_thresh_px)
         if not np.isfinite(thresh) or thresh <= 0:
             thresh = 0.1
 
         try:
-            max_iters = int(self.ransac_max_iters_var.get())
+            s = (self.ransac_max_iters_var.get() or "").strip()
+            max_iters = int(s) if s else int(self.config.ransac_max_iters)
         except Exception:
             max_iters = int(self.config.ransac_max_iters)
         if max_iters < 1:
             max_iters = 1
 
         try:
-            confidence = float(self.ransac_confidence_var.get())
+            s = (self.ransac_confidence_var.get() or "").strip()
+            confidence = float(s) if s else float(self.config.ransac_confidence)
         except Exception:
             confidence = float(self.config.ransac_confidence)
         if not np.isfinite(confidence) or not (0.0 < confidence < 1.0):
             confidence = 0.995
 
         try:
-            refine_iters = int(self.ransac_refine_iters_var.get())
+            s = (self.ransac_refine_iters_var.get() or "").strip()
+            refine_iters = int(s) if s else int(self.config.ransac_refine_iters)
         except Exception:
             refine_iters = int(self.config.ransac_refine_iters)
         if refine_iters < 0:
@@ -1347,13 +1393,13 @@ class MainWindow(tk.Tk):
         self.config.ransac_confidence = float(confidence)
         self.config.ransac_refine_iters = int(refine_iters)
 
-        self.ransac_thresh_var.set(self.config.ransac_thresh_px)
-        self.ransac_max_iters_var.set(self.config.ransac_max_iters)
-        self.ransac_confidence_var.set(self.config.ransac_confidence)
-        self.ransac_refine_iters_var.set(self.config.ransac_refine_iters)
+        self.ransac_thresh_var.set(f"{float(self.config.ransac_thresh_px):g}")
+        self.ransac_max_iters_var.set(str(int(self.config.ransac_max_iters)))
+        self.ransac_confidence_var.set(f"{float(self.config.ransac_confidence):.4f}")
+        self.ransac_refine_iters_var.set(str(int(self.config.ransac_refine_iters)))
         self._update_ransac_controls_state()
 
-    def _on_ransac_params_change(self) -> None:
+    def _on_ransac_params_commit(self) -> None:
         if self._ransac_syncing:
             return
         self._ransac_syncing = True
@@ -1365,11 +1411,11 @@ class MainWindow(tk.Tk):
 
     def _reset_ransac_defaults(self) -> None:
         d = AppConfig.default()
-        self.ransac_thresh_var.set(float(d.ransac_thresh_px))
-        self.ransac_max_iters_var.set(int(d.ransac_max_iters))
-        self.ransac_confidence_var.set(float(d.ransac_confidence))
-        self.ransac_refine_iters_var.set(int(d.ransac_refine_iters))
-        self._on_ransac_params_change()
+        self.ransac_thresh_var.set(f"{float(d.ransac_thresh_px):g}")
+        self.ransac_max_iters_var.set(str(int(d.ransac_max_iters)))
+        self.ransac_confidence_var.set(f"{float(d.ransac_confidence):.4f}")
+        self.ransac_refine_iters_var.set(str(int(d.ransac_refine_iters)))
+        self._on_ransac_params_commit()
 
     def _update_ransac_controls_state(self) -> None:
         m = (self.transform_model_var.get() or "").strip().lower()
@@ -1404,6 +1450,8 @@ class MainWindow(tk.Tk):
         self.after(100, self._process_queue)
 
     def _run_task(self):
+        if hasattr(self, "ransac_thresh_var"):
+            self._on_ransac_params_commit()
         algo_idx = self.algo_combo.current()
         if algo_idx < 0:
             messagebox.showerror("Error", "No algorithm selected")
