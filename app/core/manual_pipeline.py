@@ -121,6 +121,8 @@ class ManualRegistrationPipeline:
                 warped_path=vis.warped_path,
                 matches_path=matches_path,
                 log_path=log_path,
+                compare_path=vis.warped_path,
+                result_source="manual",
             )
             self._on_success(out)
         except Exception as e:

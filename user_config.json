@@ -51,13 +51,13 @@
     },
     {
       "name": "MATLAB_WSSF",
-      "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_func('{fixed}','{moving}','{matches_out}');\"",
+      "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_func('{fixed}','{moving}','{matches_out}','{out_dir}');\"",
       "cwd": "{algorithms_root}\\\\matlab\\\\ljh",
       "env_hint": "环境：需要安装 MATLAB 并确保 matlab 在 PATH；工程在 algorithms\\\\matlab\\\\ljh\\\\，入口函数 WSSF_demo_func.m。"
     },
     {
       "name": "MATLAB_WSSF_tv_logtv",
-      "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_tv_logtv('{fixed}','{moving}','{matches_out}');\"",
+      "command": "matlab -batch \"cd('{algorithms_root}\\\\matlab\\\\ljh'); addpath(genpath(pwd)); WSSF_demo_tv_logtv('{fixed}','{moving}','{matches_out}','{out_dir}');\"",
       "cwd": "{algorithms_root}\\\\matlab\\\\ljh",
       "env_hint": "环境：需要安装 MATLAB 并确保 matlab 在 PATH；依赖子目录 PSATF/Others/TV（脚本会 addpath(genpath)）。入口函数 WSSF_demo_tv_logtv.m。"
     }
@@ -66,8 +66,8 @@
   "last_input_mode": "pair",
   "last_folder": "D:/hand_craft_registration/SRIF-master/dataset/Optical-SAR",
   "last_pairs_txt": "C:/Users/ASUS/Desktop/pair_test.txt",
-  "last_fixed": "D:/hand_craft_registration/WSSF-main/WSSF-main/ht_eval_for_own_affine/pair5_1.jpg",
-  "last_moving": "D:/hand_craft_registration/WSSF-main/WSSF-main/ht_eval_for_own_affine/pair5_2.jpg",
+  "last_fixed": "D:/hand_craft_registration/WSSF-main/WSSF-main/ht_eval_for_own_affine/pair44_1.jpg",
+  "last_moving": "D:/hand_craft_registration/WSSF-main/WSSF-main/ht_eval_for_own_affine/pair44_2.jpg",
   "last_output_root": "D:\\hand_craft_registration\\SRIF-master\\python_registration_gui\\outputs",
   "last_transform_model": "fsc-affine",
   "ransac_thresh_px": 3.0,

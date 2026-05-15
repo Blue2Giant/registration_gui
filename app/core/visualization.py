@@ -86,6 +86,27 @@ def checkerboard_fusion(
     return out
 
 
+def save_warped_image(
+    out_dir: str,
+    fixed_img_path: str,
+    moving_img_path: str,
+    H_3x3: np.ndarray,
+    file_name: str = "warped.jpg",
+) -> str:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    fixed = cv2.imread(fixed_img_path, cv2.IMREAD_COLOR)
+    moving = cv2.imread(moving_img_path, cv2.IMREAD_COLOR)
+    if fixed is None or moving is None:
+        raise ValueError("failed to read images")
+
+    h, w = fixed.shape[0], fixed.shape[1]
+    warped = cv2.warpPerspective(moving, np.asarray(H_3x3, dtype=np.float64), (w, h), flags=cv2.INTER_LINEAR)
+    warped_path = str((out / file_name).resolve())
+    cv2.imwrite(warped_path, warped)
+    return warped_path
+
+
 def save_visualizations(
     out_dir: str,
     fixed_img_path: str,
@@ -111,11 +132,7 @@ def save_visualizations(
     cb_path = str((out / "checkerboard.jpg").resolve())
     cv2.imwrite(cb_path, cb)
 
-    # Save full warped image for layer switching
-    h, w = fixed.shape[0], fixed.shape[1]
-    warped = cv2.warpPerspective(moving, H_3x3.astype(np.float64), (w, h), flags=cv2.INTER_LINEAR)
-    warped_path = str((out / "warped.jpg").resolve())
-    cv2.imwrite(warped_path, warped)
+    warped_path = save_warped_image(out_dir, fixed_img_path, moving_img_path, H_3x3, file_name="warped.jpg")
 
     return VisualizationOutputs(
         matches_vis_path=mv_path, 

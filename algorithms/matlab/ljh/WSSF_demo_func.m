@@ -1,4 +1,4 @@
-function [matchedPoints1, matchedPoints2, matches] = WSSF_demo_func(im1, im2, matchesPath)
+function [matchedPoints1, matchedPoints2, matches] = WSSF_demo_func(im1, im2, matchesPath, outDir)
 close all;
 beep off;
 warning('off');
@@ -8,9 +8,26 @@ addpath(genpath('Others'));
 if nargin < 3 || isempty(matchesPath)
     matchesPath = '.\matches.txt';
 end
+if nargin < 4 || isempty(outDir)
+    outDir = fileparts(matchesPath);
+    if isempty(outDir)
+        outDir = pwd;
+    end
+end
+if ~exist(outDir, 'dir')
+    mkdir(outDir);
+end
 matchedPoints1 = zeros(0,2);
 matchedPoints2 = zeros(0,2);
 matches = zeros(0,4);
+transformModel = 'fsc-affine';
+rmse = NaN;
+H1 = eye(3);
+nativeMatchesVisPath = fullfile(outDir, 'matches_vis.jpg');
+nativeCheckerboardPath = fullfile(outDir, 'checkerboard.jpg');
+nativeFusionPath = fullfile(outDir, 'fusion.jpg');
+nativeHPath = fullfile(outDir, 'H_fsc_affine_3x3.txt');
+nativeMetaPath = fullfile(outDir, 'native_result.txt');
 try
     if ischar(im1) || isstring(im1)
         image_3 = uint8(imread(im1));
@@ -28,6 +45,8 @@ try
     if size(image_4,3)==1
         image_4 = cat(3, image_4,image_4,image_4);
     end
+    image1 = image_3;
+    image2 = image_4;
     image_3 = adapthisteq(rgb2gray(image_3));
     image_4 = adapthisteq(rgb2gray(image_4));
     image_3 = cat(3, image_3,image_3,image_3);
@@ -75,7 +94,7 @@ try
         matchedPoints1 = rawPoints1;
         matchedPoints2 = rawPoints2;
     else
-        [H1,~] = FSC(rawPoints1,rawPoints2,'affine',3);
+        [H1,rmse] = FSC(rawPoints1,rawPoints2,'affine',3);
         Y_ = H1 * [rawPoints1(:,[1,2])'; ones(1, size(rawPoints1,1))];
         Y_(1,:) = Y_(1,:) ./ Y_(3,:);
         Y_(2,:) = Y_(2,:) ./ Y_(3,:);
@@ -89,6 +108,39 @@ try
     end
 
     matches = [matchedPoints1 matchedPoints2];
+    dlmwrite(matchesPath, matches, 'delimiter', ' ');
+    dlmwrite(nativeHPath, H1, 'delimiter', ' ', 'precision', '%.10f');
+    cp_showMatch(image1, image2, matchedPoints1, matchedPoints2, [], 'matches_vis.jpg', outDir);
+    image_fusion(image2, image1, double(H1), outDir);
+
+    tempBoardPath = fullfile(outDir, 'Fused image of the board.jpg');
+    tempFusionPath = fullfile(outDir, 'fusion image.jpg');
+    if exist(tempBoardPath, 'file')
+        if exist(nativeCheckerboardPath, 'file')
+            delete(nativeCheckerboardPath);
+        end
+        movefile(tempBoardPath, nativeCheckerboardPath, 'f');
+    end
+    if exist(tempFusionPath, 'file')
+        if exist(nativeFusionPath, 'file')
+            delete(nativeFusionPath);
+        end
+        movefile(tempFusionPath, nativeFusionPath, 'f');
+    end
 catch
 end
 dlmwrite(matchesPath, matches, 'delimiter', ' ');
+dlmwrite(nativeHPath, H1, 'delimiter', ' ', 'precision', '%.10f');
+fid = fopen(nativeMetaPath, 'w');
+if fid ~= -1
+    fprintf(fid, 'transform_model=%s\n', transformModel);
+    fprintf(fid, 'matches_path=%s\n', matchesPath);
+    fprintf(fid, 'matches_vis_path=%s\n', nativeMatchesVisPath);
+    fprintf(fid, 'checkerboard_path=%s\n', nativeCheckerboardPath);
+    fprintf(fid, 'fusion_path=%s\n', nativeFusionPath);
+    fprintf(fid, 'H_path=%s\n', nativeHPath);
+    fprintf(fid, 'rmse=%.10f\n', rmse);
+    fprintf(fid, 'matches_count=%d\n', size(matches, 1));
+    fprintf(fid, 'inliers_count=%d\n', size(matches, 1));
+    fclose(fid);
+end

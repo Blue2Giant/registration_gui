@@ -634,6 +634,7 @@ class MainWindow(tk.Tk):
 
         self.bind("<Up>", lambda e: self._cycle_compare_layer(-1))
         self.bind("<Down>", lambda e: self._cycle_compare_layer(1))
+        self.compare_warped_radio = rb
 
         self.frame_matrix = ttk.Frame(self.content_area)
         mat_container = ttk.Frame(self.frame_matrix)
@@ -705,7 +706,7 @@ class MainWindow(tk.Tk):
         if layer == "fixed":
             path = self.fixed_path_var.get()
         else:
-            path = self.last_outputs.warped_path
+            path = getattr(self.last_outputs, "compare_path", "") or self.last_outputs.warped_path
 
         if not path or not Path(path).exists():
             return None
@@ -724,6 +725,15 @@ class MainWindow(tk.Tk):
             return img
         except Exception:
             return None
+
+    def _update_compare_controls(self) -> None:
+        label = "Warped"
+        if self.last_outputs and getattr(self.last_outputs, "result_source", "") == "native_wssf":
+            compare_path = getattr(self.last_outputs, "compare_path", "") or ""
+            warped_path = getattr(self.last_outputs, "warped_path", "") or ""
+            if compare_path and compare_path != warped_path:
+                label = "Fusion"
+        self.compare_warped_radio.config(text=label)
 
     def _fit_compare_view(self, img: Image.Image) -> None:
         cw = max(int(self.compare_canvas.winfo_width()), 1)
@@ -1727,6 +1737,7 @@ class MainWindow(tk.Tk):
         self.compare_zoom = None
         self.compare_offset_x = 0.0
         self.compare_offset_y = 0.0
+        self._update_compare_controls()
         
         self.compare_layer_var.set("fixed")
         self._refresh_matches_view()

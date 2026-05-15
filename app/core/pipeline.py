@@ -9,7 +9,7 @@ import numpy as np
 from .executor import run_command, workdir_fallback_match_paths
 from .matches import resolve_matches
 from .transform_estimator import estimate_transform_3x3
-from .visualization import save_visualizations
+from .visualization import save_visualizations, save_warped_image
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,8 @@ class TaskOutputs:
     warped_path: str
     matches_path: str
     log_path: str
+    compare_path: str = ""
+    result_source: str = ""
 
 
 class RegistrationPipeline:
@@ -59,6 +61,72 @@ class RegistrationPipeline:
         self._on_success = on_success
         self._on_error = on_error
         self._is_cancelled = cancel_check
+
+    @staticmethod
+    def _uses_native_wssf_route(algo_name: str) -> bool:
+        return (algo_name or "").strip().lower() in ("matlab_wssf", "matlab_wssf_tv_logtv")
+
+    @staticmethod
+    def _read_native_result_file(path: Path) -> dict[str, str]:
+        data: dict[str, str] = {}
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        for line in raw.splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            data[key.strip()] = value.strip()
+        return data
+
+    def _build_native_wssf_outputs(self, out_dir: Path, log_wrapper: Callable[[str], None]) -> TaskOutputs:
+        meta_path = out_dir / "native_result.txt"
+        if not meta_path.exists():
+            raise FileNotFoundError(f"native WSSF result not found: {meta_path}")
+
+        meta = self._read_native_result_file(meta_path)
+        h_path = Path(meta.get("H_path", str((out_dir / "H_fsc_affine_3x3.txt").resolve()))).resolve()
+        matches_path = Path(meta.get("matches_path", str((out_dir / "matches.txt").resolve()))).resolve()
+        matches_vis_path = Path(meta.get("matches_vis_path", str((out_dir / "matches_vis.jpg").resolve()))).resolve()
+        checkerboard_path = Path(meta.get("checkerboard_path", str((out_dir / "checkerboard.jpg").resolve()))).resolve()
+        fusion_path = Path(meta.get("fusion_path", str((out_dir / "fusion.jpg").resolve()))).resolve()
+
+        H_3x3 = np.loadtxt(h_path, dtype=np.float64).reshape(3, 3)
+        warp_H_3x3 = H_3x3
+        try:
+            warp_H_3x3 = np.linalg.inv(H_3x3)
+        except np.linalg.LinAlgError:
+            log_wrapper("Native WSSF H is singular; compare view will use raw native H without inversion.")
+        warped_path = save_warped_image(
+            out_dir=str(out_dir),
+            fixed_img_path=self._in.fixed_path,
+            moving_img_path=self._in.moving_path,
+            H_3x3=warp_H_3x3,
+            file_name="warped.jpg",
+        )
+
+        transform_model = str(meta.get("transform_model", "fsc-affine") or "fsc-affine")
+        rmse = float(meta.get("rmse", "nan"))
+        matches_count = int(meta.get("matches_count", "0"))
+        inliers_count = int(meta.get("inliers_count", str(matches_count)))
+
+        log_wrapper(
+            f"Using native WSSF outputs: model={transform_model}, "
+            f"matches={matches_count}, inliers={inliers_count}, rmse={rmse:.4f}"
+        )
+
+        return TaskOutputs(
+            transform_model=transform_model,
+            H_3x3=H_3x3.tolist(),
+            rmse=rmse,
+            matches_count=matches_count,
+            inliers_count=inliers_count,
+            matches_vis_path=str(matches_vis_path),
+            checkerboard_path=str(checkerboard_path),
+            warped_path=str(Path(warped_path).resolve()),
+            matches_path=str(matches_path),
+            log_path=str((out_dir / "run.log").resolve()),
+            compare_path=str(fusion_path if fusion_path.exists() else Path(warped_path).resolve()),
+            result_source="native_wssf",
+        )
 
     def run(self) -> None:
         out_dir = Path(self._in.output_dir)
@@ -114,6 +182,11 @@ class RegistrationPipeline:
 
             if self._is_cancelled():
                 self._on_error("Task cancelled by user.")
+                return
+
+            if self._uses_native_wssf_route(self._in.algo_name):
+                native_out = self._build_native_wssf_outputs(out_dir, log_wrapper)
+                self._on_success(native_out)
                 return
 
             # 2. Resolve Matches
@@ -173,6 +246,8 @@ class RegistrationPipeline:
                 warped_path=vis.warped_path,
                 matches_path=mr.path,
                 log_path=log_path,
+                compare_path=vis.warped_path,
+                result_source="estimated",
             )
             self._on_success(out)
 
