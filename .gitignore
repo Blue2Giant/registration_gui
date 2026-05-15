@@ -1,19 +1,23 @@
+# Directories
 outputs/
-__pycache__/
-*.pyc
-
 .venv/
-.python-version
-
-*.asv
-
+.conda_envs/
+third_party_env/
 algorithms/**/demo_output/
 algorithms/**/outputs/
 algorithms/**/runs/
-
 algorithms/**/weights/
 algorithms/**/checkpoints/
+
+# Python Cache
+__pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.python-version
+
+# Deep Learning Weights & Models
 *.ckpt
 *.pth
 *.pt
@@ -21,7 +25,13 @@ algorithms/**/checkpoints/
 *.engine
 *.trt
 *.tflite
+*.safetensors
+*.h5
+*.hdf5
+*.weights
+*.pb
 
+# Archives & Executables
 *.zip
 *.7z
 *.rar
@@ -29,3 +39,6 @@ algorithms/**/checkpoints/
 *.tar.gz
 *.tgz
 *.exe
+
+# Other
+*.asv

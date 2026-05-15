@@ -58,6 +58,26 @@ def _generate_matches_opencv(fixed_path: str, moving_path: str, max_matches: int
     return p1, p2, name
 
 
+def _make_checkerboard(img_ref: np.ndarray, img_warped: np.ndarray, tile_size: int) -> np.ndarray:
+    h, w = img_ref.shape[:2]
+    h_warp, w_warp = img_warped.shape[:2]
+    hc, wc = min(h, h_warp), min(w, w_warp)
+    img_ref = img_ref[:hc, :wc]
+    img_warped = img_warped[:hc, :wc]
+    out = np.zeros_like(img_ref)
+    for y in range(0, hc, tile_size):
+        for x in range(0, wc, tile_size):
+            y_end = min(y + tile_size, hc)
+            x_end = min(x + tile_size, wc)
+            iy = y // tile_size
+            ix = x // tile_size
+            if (iy + ix) % 2 == 0:
+                out[y:y_end, x:x_end] = img_ref[y:y_end, x:x_end]
+            else:
+                out[y:y_end, x:x_end] = img_warped[y:y_end, x:x_end]
+    return out
+
+
 def run_mapglue(
     fixed_path: str,
     moving_path: str,
@@ -115,6 +135,9 @@ def main() -> None:
     parser.add_argument("--weights", default="", help="TorchScript weights path (.pt)")
     parser.add_argument("--num_keypoints", type=int, default=2048)
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
+    parser.add_argument("--save_chessboard", action="store_true")
+    parser.add_argument("--chessboard_tile", type=int, default=64)
+    parser.add_argument("--chessboard_out", type=str, default="")
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent
@@ -128,6 +151,37 @@ def main() -> None:
         num_keypoints=args.num_keypoints,
         device=args.device,
     )
+
+    if args.save_chessboard:
+        matches_path = Path(args.matches_out)
+        if not matches_path.exists():
+            print(f"Chessboard skipped: matches file not found: {matches_path}")
+            return
+        arr = np.loadtxt(str(matches_path), dtype=np.float32)
+        arr = np.asarray(arr)
+        if arr.ndim == 1:
+            arr = arr.reshape(1, -1)
+        if arr.shape[1] < 4 or arr.shape[0] < 4:
+            print("Chessboard skipped: not enough matches")
+            return
+        mkpts0 = arr[:, 0:2]
+        mkpts1 = arr[:, 2:4]
+        h_pred, _ = cv2.findHomography(mkpts1, mkpts0, cv2.RANSAC, 3.0)
+        if h_pred is None:
+            print("Chessboard skipped: findHomography failed")
+            return
+        img0 = cv2.imread(str(args.fixed), cv2.IMREAD_COLOR)
+        img1 = cv2.imread(str(args.moving), cv2.IMREAD_COLOR)
+        if img0 is None or img1 is None:
+            print("Chessboard skipped: failed to read images")
+            return
+        h_ref, w_ref = img0.shape[:2]
+        warped = cv2.warpPerspective(img1, h_pred, (w_ref, h_ref))
+        chess = _make_checkerboard(img_ref=img0, img_warped=warped, tile_size=args.chessboard_tile)
+        out_path = Path(args.chessboard_out) if args.chessboard_out.strip() else matches_path.with_name("chessboard.png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out_path), chess)
+        print(f"Chessboard saved: {out_path}")
 
 
 if __name__ == "__main__":

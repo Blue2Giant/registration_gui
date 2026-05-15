@@ -8,6 +8,10 @@ def main() -> None:
     if "--tk" in sys.argv:
         use_tk = True
 
+    show_logo = True
+    if "--no-logo" in sys.argv:
+        show_logo = False
+
     if not use_tk:
         try:
             from PySide6.QtWidgets import QApplication
@@ -15,7 +19,8 @@ def main() -> None:
             
             app = QApplication(sys.argv)
             app.setApplicationName("配准可视化工具")
-            win = MainWindow()
+            # Note: PySide6 version might need update to support show_logo if it exists
+            win = MainWindow() 
             win.show()
             sys.exit(app.exec())
         except ImportError:
@@ -27,13 +32,13 @@ def main() -> None:
             use_tk = True
 
     if use_tk:
-        _run_tk()
+        _run_tk(show_logo=show_logo)
 
-def _run_tk():
+def _run_tk(show_logo: bool = True):
     try:
         from .ui_tk.main_window import MainWindow as TkMainWindow
         print("Starting Tkinter interface...")
-        app = TkMainWindow()
+        app = TkMainWindow(show_logo=show_logo)
         app.mainloop()
     except Exception:
         print("Error: Failed to load Tkinter interface.")

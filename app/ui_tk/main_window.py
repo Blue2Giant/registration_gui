@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import tkinter.font as tkfont
 import threading
 from pathlib import Path
 import queue
@@ -21,8 +22,9 @@ NORMAL_FONT = ("Segoe UI", 10)
 MONO_FONT = ("Consolas", 10)
 
 class MainWindow(tk.Tk):
-    def __init__(self):
+    def __init__(self, show_logo: bool = True):
         super().__init__()
+        self.show_logo = show_logo
         self.title("Registration Tool (Tkinter Fallback Mode)")
         self.geometry("1280x850")
         self.configure(bg=BG_COLOR)
@@ -42,7 +44,10 @@ class MainWindow(tk.Tk):
         self.compare_canvas_photo: ImageTk.PhotoImage | None = None
         self.compare_pan_start: tuple[int, int, float, float] | None = None
         self.left_scroll_active: bool = False
-        self._ui_scale_base: float = float(self.tk.call("tk", "scaling"))
+        
+        # Font Scaling
+        self.font_map: dict[tuple, tkfont.Font] = {}
+        self.font_scale: float = 1.0
         self._ui_scale_min: float = 0.6
         self._ui_scale_max: float = 2.5
 
@@ -86,45 +91,61 @@ class MainWindow(tk.Tk):
         style.theme_use("clam")
         
         style.configure("TFrame", background=BG_COLOR)
-        style.configure("TLabel", background=BG_COLOR, foreground=TEXT_COLOR, font=NORMAL_FONT)
+        style.configure("TLabel", background=BG_COLOR, foreground=TEXT_COLOR, font=self._get_font("Segoe UI", 10))
         style.configure("TLabelframe", background=BG_COLOR, foreground=TEXT_COLOR)
-        style.configure("TLabelframe.Label", background=BG_COLOR, foreground=TEXT_COLOR, font=HEADER_FONT)
-        style.configure("TButton", font=NORMAL_FONT, padding=5)
+        style.configure("TLabelframe.Label", background=BG_COLOR, foreground=TEXT_COLOR, font=self._get_font("Segoe UI", 12, "bold"))
+        style.configure("TButton", font=self._get_font("Segoe UI", 10), padding=5)
         
         style.configure("Primary.TButton", background=ACCENT_COLOR, foreground="white")
         style.map("Primary.TButton", background=[("active", "#153E7E")]) # Darker Fudan Blue
         
-        style.configure("Toggle.TButton", font=("Segoe UI", 10, "bold"), padding=8)
-        style.configure("RansacParam.TLabel", background=BG_COLOR, foreground=ACCENT_COLOR, font=("Segoe UI", 10, "bold"))
-        style.configure("RansacHelp.TLabel", background=BG_COLOR, foreground="#6B7280", font=("Segoe UI", 8))
+        style.configure("Toggle.TButton", font=self._get_font("Segoe UI", 10, "bold"), padding=8)
+        style.configure("RansacParam.TLabel", background=BG_COLOR, foreground=ACCENT_COLOR, font=self._get_font("Segoe UI", 10, "bold"))
+        style.configure("RansacHelp.TLabel", background=BG_COLOR, foreground="#6B7280", font=self._get_font("Segoe UI", 8))
         style.configure(
             "Ransac.TSpinbox",
             foreground=ACCENT_COLOR,
             fieldbackground="white",
-            font=("Consolas", 10, "bold"),
+            font=self._get_font("Consolas", 10, "bold"),
             padding=2,
         )
 
     def _is_ctrl_pressed(self, event) -> bool:
         return bool(int(getattr(event, "state", 0)) & 0x0004)
 
+    def _get_font(self, family: str, size: int, weight: str = "normal") -> tkfont.Font:
+        key = (family, size, weight)
+        if key not in self.font_map:
+            current_size = int(size * self.font_scale)
+            if current_size < 1: current_size = 1
+            # Note: size in points (positive)
+            f = tkfont.Font(family=family, size=current_size, weight=weight)
+            self.font_map[key] = f
+        return self.font_map[key]
+
     def _ui_zoom_steps(self, steps: int) -> None:
         if steps == 0:
             return
-        try:
-            current = float(self.tk.call("tk", "scaling"))
-        except Exception:
-            current = self._ui_scale_base
+        
         factor = 1.10 ** int(steps)
-        new_scale = float(current * factor)
+        new_scale = float(self.font_scale * factor)
         new_scale = max(self._ui_scale_min, min(self._ui_scale_max, new_scale))
-        if abs(new_scale - current) < 1e-6:
+        
+        if abs(new_scale - self.font_scale) < 1e-6:
             return
-        self.tk.call("tk", "scaling", new_scale)
+            
+        self.font_scale = new_scale
+        for (family, base_size, weight), font_obj in self.font_map.items():
+            s = int(base_size * self.font_scale)
+            if s < 1: s = 1
+            font_obj.configure(size=s)
+            
         self.after_idle(self._refresh_after_ui_scale)
 
     def _reset_ui_scale(self) -> None:
-        self.tk.call("tk", "scaling", float(self._ui_scale_base))
+        self.font_scale = 1.0
+        for (family, base_size, weight), font_obj in self.font_map.items():
+            font_obj.configure(size=base_size)
         self.after_idle(self._refresh_after_ui_scale)
 
     def _refresh_after_ui_scale(self) -> None:
@@ -148,29 +169,30 @@ class MainWindow(tk.Tk):
         h_container.pack(side=tk.LEFT, padx=20, pady=15)
 
         # Title text first (White text on Blue bg)
-        lbl_title = tk.Label(h_container, text="Keypoint Based Image Registration Tool", font=("Segoe UI", 22, "bold"), bg=ACCENT_COLOR, fg="white")
+        lbl_title = tk.Label(h_container, text="Keypoint Based Image Registration Tool", font=self._get_font("Segoe UI", 22, "bold"), bg=ACCENT_COLOR, fg="white")
         lbl_title.pack(side=tk.LEFT)
 
         # Logo after text
         # Ensure we look for logo in the correct absolute path or relative to this file
         # This file is in app/ui_tk/, so assets is in app/assets/
-        logo_path = (Path(__file__).parent.parent / "assets" / "logo.png").resolve()
-        
-        self.logo_img = None
-        if logo_path.exists():
-            try:
-                pil_img = Image.open(logo_path)
-                h = 50
-                w = int(pil_img.width * (h / pil_img.height))
-                pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
-                self.logo_img = ImageTk.PhotoImage(pil_img)
-                # Logo on Blue bg
-                lbl_logo = tk.Label(h_container, image=self.logo_img, bg=ACCENT_COLOR)
-                lbl_logo.pack(side=tk.LEFT, padx=(20, 0))
-            except Exception as e:
-                print(f"Failed to load logo: {e}")
-        else:
-            print(f"Logo not found at: {logo_path}")
+        if self.show_logo:
+            logo_path = (Path(__file__).parent.parent / "assets" / "logo.png").resolve()
+            
+            self.logo_img = None
+            if logo_path.exists():
+                try:
+                    pil_img = Image.open(logo_path)
+                    h = 50
+                    w = int(pil_img.width * (h / pil_img.height))
+                    pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
+                    self.logo_img = ImageTk.PhotoImage(pil_img)
+                    # Logo on Blue bg
+                    lbl_logo = tk.Label(h_container, image=self.logo_img, bg=ACCENT_COLOR)
+                    lbl_logo.pack(side=tk.LEFT, padx=(20, 0))
+                except Exception as e:
+                    print(f"Failed to load logo: {e}")
+            else:
+                print(f"Logo not found at: {logo_path}")
 
         # Main Content
         self.paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -237,7 +259,7 @@ class MainWindow(tk.Tk):
         exe_group = ttk.LabelFrame(container, text="Registration Algorithm")
         exe_group.pack(fill=tk.X, pady=5)
         
-        self.algo_combo = ttk.Combobox(exe_group, state="readonly", font=NORMAL_FONT)
+        self.algo_combo = ttk.Combobox(exe_group, state="readonly", font=self._get_font("Segoe UI", 10))
         self.algo_combo.pack(fill=tk.X, padx=10, pady=8)
         self.algo_combo.bind("<<ComboboxSelected>>", lambda e: self._update_algo_hint())
 
@@ -248,7 +270,7 @@ class MainWindow(tk.Tk):
             text="Environment / Notes",
             bg="#EEF2FF",
             fg=ACCENT_COLOR,
-            font=("Segoe UI", 9, "bold"),
+            font=self._get_font("Segoe UI", 9, "bold"),
         )
         self.lbl_algo_hint_title.pack(anchor="w", padx=8, pady=(6, 0))
 
@@ -256,7 +278,7 @@ class MainWindow(tk.Tk):
             hint_frame,
             height=4,
             wrap="word",
-            font=("Segoe UI", 9),
+            font=self._get_font("Segoe UI", 9),
             bg="#EEF2FF",
             fg="#111827",
             relief="flat",
@@ -273,7 +295,7 @@ class MainWindow(tk.Tk):
         self.transform_combo = ttk.Combobox(
             transform_group,
             state="readonly",
-            font=NORMAL_FONT,
+            font=self._get_font("Segoe UI", 10),
             values=["affine", "homography", "fsc-affine", "fsc-perspective"],
             textvariable=self.transform_model_var,
         )
@@ -413,14 +435,14 @@ class MainWindow(tk.Tk):
         ttk.Label(
             self.folder_frame,
             text="要求：文件名严格为 <key>_1 和 <key>_2（例如 pair1_1.jpg / pair1_2.jpg）",
-            font=("Segoe UI", 9),
+            font=self._get_font("Segoe UI", 9),
         ).pack(anchor=tk.W, pady=(5, 0))
         
-        ttk.Label(self.folder_frame, text="Available Pairs:", font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(5,0))
+        ttk.Label(self.folder_frame, text="Available Pairs:", font=self._get_font("Segoe UI", 9)).pack(anchor=tk.W, pady=(5,0))
         
         list_frame = ttk.Frame(self.folder_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=2)
-        self.pair_list = tk.Listbox(list_frame, height=8, font=NORMAL_FONT, bg="white", relief="flat", borderwidth=1)
+        self.pair_list = tk.Listbox(list_frame, height=8, font=self._get_font("Segoe UI", 10), bg="white", relief="flat", borderwidth=1)
         self.pair_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.pair_list.bind("<<ListboxSelect>>", self._on_pair_select)
         sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.pair_list.yview)
@@ -445,14 +467,14 @@ class MainWindow(tk.Tk):
         ttk.Label(
             self.txt_frame,
             text="TXT 每行一对：fixed绝对路径,moving绝对路径（逗号分隔）",
-            font=("Segoe UI", 9),
+            font=self._get_font("Segoe UI", 9),
         ).pack(anchor=tk.W, pady=(5, 0))
 
-        ttk.Label(self.txt_frame, text="Available Pairs:", font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(5,0))
+        ttk.Label(self.txt_frame, text="Available Pairs:", font=self._get_font("Segoe UI", 9)).pack(anchor=tk.W, pady=(5,0))
 
         t_list_frame = ttk.Frame(self.txt_frame)
         t_list_frame.pack(fill=tk.BOTH, expand=True, pady=2)
-        self.txt_pair_list = tk.Listbox(t_list_frame, height=8, font=NORMAL_FONT, bg="white", relief="flat", borderwidth=1)
+        self.txt_pair_list = tk.Listbox(t_list_frame, height=8, font=self._get_font("Segoe UI", 10), bg="white", relief="flat", borderwidth=1)
         self.txt_pair_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.txt_pair_list.bind("<<ListboxSelect>>", self._on_txt_pair_select)
         t_sb = ttk.Scrollbar(t_list_frame, orient=tk.VERTICAL, command=self.txt_pair_list.yview)
@@ -519,7 +541,7 @@ class MainWindow(tk.Tk):
         self.txt_manual_points = tk.Text(
             manual_group,
             height=8,
-            font=MONO_FONT,
+            font=self._get_font("Consolas", 10),
             bg="white",
             relief="flat",
             borderwidth=1,
@@ -543,27 +565,27 @@ class MainWindow(tk.Tk):
         btn_bar.pack(fill=tk.X, pady=(0, 5))
         
         # Distinct colors for the sections
-        self.btn_matches = tk.Button(btn_bar, text="Matches Visualization", font=("Segoe UI", 10, "bold"),
+        self.btn_matches = tk.Button(btn_bar, text="Matches Visualization", font=self._get_font("Segoe UI", 10, "bold"),
                                      bg="#10B981", fg="white", relief="flat", padx=15, pady=5,
                                      command=lambda: self._switch_tab("matches"))
         self.btn_matches.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.btn_fusion = tk.Button(btn_bar, text="Checkerboard Fusion", font=("Segoe UI", 10, "bold"),
+        self.btn_fusion = tk.Button(btn_bar, text="Checkerboard Fusion", font=self._get_font("Segoe UI", 10, "bold"),
                                     bg="#8B5CF6", fg="white", relief="flat", padx=15, pady=5,
                                     command=lambda: self._switch_tab("fusion"))
         self.btn_fusion.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.btn_compare = tk.Button(btn_bar, text="Compare", font=("Segoe UI", 10, "bold"),
+        self.btn_compare = tk.Button(btn_bar, text="Compare", font=self._get_font("Segoe UI", 10, "bold"),
                                      bg="#F59E0B", fg="white", relief="flat", padx=15, pady=5,
                                      command=lambda: self._switch_tab("compare"))
         self.btn_compare.pack(side=tk.LEFT, padx=(0, 5))
 
-        self.btn_matrix = tk.Button(btn_bar, text="Transform Matrix", font=("Segoe UI", 10, "bold"),
+        self.btn_matrix = tk.Button(btn_bar, text="Transform Matrix", font=self._get_font("Segoe UI", 10, "bold"),
                                     bg="#3B82F6", fg="white", relief="flat", padx=15, pady=5,
                                     command=lambda: self._switch_tab("matrix"))
         self.btn_matrix.pack(side=tk.LEFT)
 
-        self.btn_manual = tk.Button(btn_bar, text="Manual", font=("Segoe UI", 10, "bold"),
+        self.btn_manual = tk.Button(btn_bar, text="Manual", font=self._get_font("Segoe UI", 10, "bold"),
                                     bg="#EF4444", fg="white", relief="flat", padx=15, pady=5,
                                     command=lambda: self._switch_tab("manual"))
         self.btn_manual.pack(side=tk.LEFT, padx=(5, 0))
@@ -583,7 +605,7 @@ class MainWindow(tk.Tk):
         self.frame_compare = ttk.Frame(self.content_area)
         self.compare_ctrl = tk.Frame(self.frame_compare, bg="#374151", padx=10, pady=5)
         self.compare_ctrl.place(relx=0.98, rely=0.02, anchor="ne")
-        tk.Label(self.compare_ctrl, text="Compare (Up/Down to switch):", bg="#374151", fg="white", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Label(self.compare_ctrl, text="Compare (Up/Down to switch):", bg="#374151", fg="white", font=self._get_font("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
 
         self.compare_layer_var = tk.StringVar(value="fixed")
         for layer_id, label in [("fixed", "Reference"), ("warped", "Warped")]:
@@ -615,7 +637,7 @@ class MainWindow(tk.Tk):
         self.frame_matrix = ttk.Frame(self.content_area)
         mat_container = ttk.Frame(self.frame_matrix)
         mat_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        self.txt_matrix = tk.Text(mat_container, font=MONO_FONT, bg="white", relief="flat", borderwidth=1, padx=10, pady=10)
+        self.txt_matrix = tk.Text(mat_container, font=self._get_font("Consolas", 10), bg="white", relief="flat", borderwidth=1, padx=10, pady=10)
         self.txt_matrix.pack(fill=tk.BOTH, expand=True)
 
         self.frame_manual = ttk.Frame(self.content_area)
@@ -626,7 +648,7 @@ class MainWindow(tk.Tk):
             text="手动配准：先点左图一个点，再点右图一个点生成一对匹配（双击点可删除）。",
             bg="#111827",
             fg="white",
-            font=("Segoe UI", 9, "bold"),
+            font=self._get_font("Segoe UI", 9, "bold"),
         ).pack(side=tk.LEFT)
         ttk.Button(manual_bar, text="Reload", command=self._manual_reload_pair).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(manual_bar, text="Clear", command=self._manual_clear_points).pack(side=tk.RIGHT, padx=(8, 0))
@@ -659,7 +681,7 @@ class MainWindow(tk.Tk):
         log_frame = ttk.LabelFrame(self.right_paned, text="Execution Logs")
         self.right_paned.add(log_frame, weight=1)
         
-        self.txt_log = tk.Text(log_frame, height=8, font=MONO_FONT, bg="#1E1E1E", fg="#D4D4D4", insertbackground="white", state=tk.DISABLED)
+        self.txt_log = tk.Text(log_frame, height=8, font=self._get_font("Consolas", 10), bg="#1E1E1E", fg="#D4D4D4", insertbackground="white", state=tk.DISABLED)
         self.txt_log.pack(fill=tk.BOTH, expand=True)
 
     def _update_thumbnail(self, path, label):
@@ -726,7 +748,7 @@ class MainWindow(tk.Tk):
                 self.compare_canvas.winfo_height() // 2,
                 text="No compare result generated yet.",
                 fill="white",
-                font=("Segoe UI", 12, "bold"),
+                font=self._get_font("Segoe UI", 12, "bold"),
             )
             return
 
@@ -739,7 +761,7 @@ class MainWindow(tk.Tk):
                 self.compare_canvas.winfo_height() // 2,
                 text="Failed to load compare image.",
                 fill="white",
-                font=("Segoe UI", 12, "bold"),
+                font=self._get_font("Segoe UI", 12, "bold"),
             )
             return
 
@@ -794,6 +816,8 @@ class MainWindow(tk.Tk):
             self._render_compare_view()
 
     def _on_compare_wheel(self, event) -> None:
+        if self._is_ctrl_pressed(event):
+            return
         if not self.frame_compare.winfo_viewable():
             return
         img = self._get_compare_image(self.compare_layer_var.get())
@@ -1068,6 +1092,8 @@ class MainWindow(tk.Tk):
         self._manual_set_view(side, zoom, ox, oy)
 
     def _manual_on_wheel(self, side: str, event) -> None:
+        if self._is_ctrl_pressed(event):
+            return
         if side == "fixed":
             img = self.manual_fixed_img
         else:
@@ -1141,7 +1167,7 @@ class MainWindow(tk.Tk):
         ch = int(canvas.winfo_height())
         canvas.delete("all")
         if img is None or cw < 20 or ch < 20:
-            canvas.create_text(cw // 2, ch // 2, text="No image", fill="white", font=("Segoe UI", 12, "bold"))
+            canvas.create_text(cw // 2, ch // 2, text="No image", fill="white", font=self._get_font("Segoe UI", 12, "bold"))
             return
 
         iw, ih = img.size
@@ -1182,7 +1208,7 @@ class MainWindow(tk.Tk):
             px = x * zoom + ox
             py = y * zoom + oy
             canvas.create_oval(px - 4, py - 4, px + 4, py + 4, outline="#22C55E", width=2)
-            canvas.create_text(px + 10, py, text=str(i), fill="#22C55E", font=("Segoe UI", 10, "bold"), anchor="w")
+            canvas.create_text(px + 10, py, text=str(i), fill="#22C55E", font=self._get_font("Segoe UI", 10, "bold"), anchor="w")
 
         if pending is not None:
             px = pending[0] * zoom + ox
