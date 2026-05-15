@@ -43,6 +43,7 @@ class MainWindow(tk.Tk):
         self.compare_canvas_image_id: int | None = None
         self.compare_canvas_photo: ImageTk.PhotoImage | None = None
         self.compare_pan_start: tuple[int, int, float, float] | None = None
+        self.current_tab: str = "matches"
         self.left_scroll_active: bool = False
         
         # Font Scaling
@@ -261,7 +262,7 @@ class MainWindow(tk.Tk):
         
         self.algo_combo = ttk.Combobox(exe_group, state="readonly", font=self._get_font("Segoe UI", 10))
         self.algo_combo.pack(fill=tk.X, padx=10, pady=8)
-        self.algo_combo.bind("<<ComboboxSelected>>", lambda e: self._update_algo_hint())
+        self.algo_combo.bind("<<ComboboxSelected>>", self._on_algorithm_changed)
 
         hint_frame = tk.Frame(exe_group, bg="#EEF2FF")
         hint_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
@@ -1225,7 +1226,43 @@ class MainWindow(tk.Tk):
         self.compare_layer_var.set(layers[new_idx])
         self._render_compare_view()
 
+    def _refresh_matches_view(self) -> None:
+        if not self.last_outputs or not self.last_outputs.matches_vis_path:
+            self.lbl_matches_img.config(image="", text="No matches generated yet.")
+            self.lbl_matches_img.image = None
+            return
+        self._show_image(self.lbl_matches_img, self.last_outputs.matches_vis_path)
+
+    def _refresh_fusion_view(self) -> None:
+        if not self.last_outputs or not self.last_outputs.checkerboard_path:
+            self.lbl_checker_img.config(image="", text="No fusion result generated yet.")
+            self.lbl_checker_img.image = None
+            return
+        self._show_image(self.lbl_checker_img, self.last_outputs.checkerboard_path)
+
+    def _refresh_matrix_view(self) -> None:
+        self.txt_matrix.delete(1.0, tk.END)
+        if not self.last_outputs:
+            self.txt_matrix.insert(tk.END, "No transform estimated yet.")
+            return
+        out = self.last_outputs
+        self.txt_matrix.insert(tk.END, "RMSE: {:.4f}\nInliers: {}\n\n".format(out.rmse, out.inliers_count))
+        self.txt_matrix.insert(tk.END, "Transform ({} 3x3):\n".format(getattr(out, "transform_model", "affine")))
+        for row in out.H_3x3:
+            self.txt_matrix.insert(tk.END, "[ {:.6f}, {:.6f}, {:.6f} ]\n".format(*row))
+
+    def _refresh_result_tab(self, name: str) -> None:
+        if name == "matches":
+            self._refresh_matches_view()
+        elif name == "fusion":
+            self._refresh_fusion_view()
+        elif name == "compare":
+            self._render_compare_view()
+        elif name == "matrix":
+            self._refresh_matrix_view()
+
     def _switch_tab(self, name):
+        self.current_tab = str(name)
         # Hide all
         self.frame_matches.pack_forget()
         self.frame_fusion.pack_forget()
@@ -1237,13 +1274,16 @@ class MainWindow(tk.Tk):
         # Show selected
         if name == "matches":
             self.frame_matches.pack(fill=tk.BOTH, expand=True)
+            self._refresh_matches_view()
         elif name == "fusion":
             self.frame_fusion.pack(fill=tk.BOTH, expand=True)
+            self._refresh_fusion_view()
         elif name == "compare":
             self.frame_compare.pack(fill=tk.BOTH, expand=True)
             self._render_compare_view()
         elif name == "matrix":
             self.frame_matrix.pack(fill=tk.BOTH, expand=True)
+            self._refresh_matrix_view()
         elif name == "manual":
             self.frame_manual.pack(fill=tk.BOTH, expand=True)
             self._manual_reload_pair()
@@ -1276,6 +1316,40 @@ class MainWindow(tk.Tk):
             self._scan_folder()
         if self.config.last_input_mode == "txt" and self.config.last_pairs_txt:
             self._scan_pairs_txt()
+
+    def _selected_algorithm_name(self) -> str:
+        idx = self.algo_combo.current()
+        if idx >= 0 and idx < len(self.config.algorithms):
+            return str(self.config.algorithms[idx].name or "")
+        return ""
+
+    def _algorithm_prefers_fsc_affine(self, algo_name: str) -> bool:
+        name = (algo_name or "").strip().lower()
+        return name in ("matlab_wssf", "matlab_wssf_tv_logtv")
+
+    def _apply_algorithm_transform_preferences(self) -> None:
+        algo_name = self._selected_algorithm_name()
+        if not self._algorithm_prefers_fsc_affine(algo_name):
+            return
+
+        self.transform_model_var.set("fsc-affine")
+
+        affine_defaults = AppConfig.opencv_ransac_defaults("affine")
+        self.config.ransac_thresh_px = float(affine_defaults["ransac_thresh_px"])
+        self.config.ransac_max_iters = int(affine_defaults["ransac_max_iters"])
+        self.config.ransac_confidence = float(affine_defaults["ransac_confidence"])
+        self.config.ransac_refine_iters = int(affine_defaults["ransac_refine_iters"])
+
+        self.ransac_thresh_var.set(f"{float(self.config.ransac_thresh_px):g}")
+        self.ransac_max_iters_var.set(str(int(self.config.ransac_max_iters)))
+        self.ransac_confidence_var.set(f"{float(self.config.ransac_confidence):.4f}")
+        self.ransac_refine_iters_var.set(str(int(self.config.ransac_refine_iters)))
+        self._update_ransac_controls_state()
+
+    def _on_algorithm_changed(self, _event=None) -> None:
+        self._update_algo_hint()
+        self._apply_algorithm_transform_preferences()
+        self._save_config()
 
     def _update_algo_hint(self) -> None:
         idx = self.algo_combo.current()
@@ -1382,13 +1456,15 @@ class MainWindow(tk.Tk):
         save_config(self.config)
 
     def _sync_ransac_config_from_ui(self) -> None:
+        model = (self.transform_model_var.get() or "").strip().lower()
+        ransac_defaults = AppConfig.opencv_ransac_defaults(model)
         try:
             s = (self.ransac_thresh_var.get() or "").strip()
             thresh = float(s) if s else float(self.config.ransac_thresh_px)
         except Exception:
             thresh = float(self.config.ransac_thresh_px)
         if not np.isfinite(thresh) or thresh <= 0:
-            thresh = 0.1
+            thresh = float(ransac_defaults["ransac_thresh_px"])
 
         try:
             s = (self.ransac_max_iters_var.get() or "").strip()
@@ -1396,7 +1472,7 @@ class MainWindow(tk.Tk):
         except Exception:
             max_iters = int(self.config.ransac_max_iters)
         if max_iters < 1:
-            max_iters = 1
+            max_iters = int(ransac_defaults["ransac_max_iters"])
 
         try:
             s = (self.ransac_confidence_var.get() or "").strip()
@@ -1404,7 +1480,7 @@ class MainWindow(tk.Tk):
         except Exception:
             confidence = float(self.config.ransac_confidence)
         if not np.isfinite(confidence) or not (0.0 < confidence < 1.0):
-            confidence = 0.995
+            confidence = float(ransac_defaults["ransac_confidence"])
 
         try:
             s = (self.ransac_refine_iters_var.get() or "").strip()
@@ -1412,7 +1488,7 @@ class MainWindow(tk.Tk):
         except Exception:
             refine_iters = int(self.config.ransac_refine_iters)
         if refine_iters < 0:
-            refine_iters = 0
+            refine_iters = int(ransac_defaults["ransac_refine_iters"])
 
         self.config.ransac_thresh_px = float(thresh)
         self.config.ransac_max_iters = int(max_iters)
@@ -1436,11 +1512,12 @@ class MainWindow(tk.Tk):
             self._ransac_syncing = False
 
     def _reset_ransac_defaults(self) -> None:
-        d = AppConfig.default()
-        self.ransac_thresh_var.set(f"{float(d.ransac_thresh_px):g}")
-        self.ransac_max_iters_var.set(str(int(d.ransac_max_iters)))
-        self.ransac_confidence_var.set(f"{float(d.ransac_confidence):.4f}")
-        self.ransac_refine_iters_var.set(str(int(d.ransac_refine_iters)))
+        model = (self.transform_model_var.get() or "").strip().lower()
+        d = AppConfig.opencv_ransac_defaults(model)
+        self.ransac_thresh_var.set(f"{float(d['ransac_thresh_px']):g}")
+        self.ransac_max_iters_var.set(str(int(d["ransac_max_iters"])))
+        self.ransac_confidence_var.set(f"{float(d['ransac_confidence']):.4f}")
+        self.ransac_refine_iters_var.set(str(int(d["ransac_refine_iters"])))
         self._on_ransac_params_commit()
 
     def _update_ransac_controls_state(self) -> None:
@@ -1651,18 +1728,11 @@ class MainWindow(tk.Tk):
         self.compare_offset_x = 0.0
         self.compare_offset_y = 0.0
         
-        self._show_image(self.lbl_matches_img, out.matches_vis_path)
-        self._show_image(self.lbl_checker_img, out.checkerboard_path)
-
         self.compare_layer_var.set("fixed")
-        if self.frame_compare.winfo_viewable():
-            self._render_compare_view()
-        
-        self.txt_matrix.delete(1.0, tk.END)
-        self.txt_matrix.insert(tk.END, "RMSE: {:.4f}\nInliers: {}\n\n".format(out.rmse, out.inliers_count))
-        self.txt_matrix.insert(tk.END, "Transform ({} 3x3):\n".format(getattr(out, "transform_model", "affine")))
-        for row in out.H_3x3:
-            self.txt_matrix.insert(tk.END, "[ {:.6f}, {:.6f}, {:.6f} ]\n".format(*row))
+        self._refresh_matches_view()
+        self._refresh_fusion_view()
+        self._refresh_matrix_view()
+        self.after_idle(lambda: self._refresh_result_tab(self.current_tab))
 
         if self.batch_active and not self.cancel_flag:
             self.batch_index += 1

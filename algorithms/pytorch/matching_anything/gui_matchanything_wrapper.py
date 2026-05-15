@@ -20,19 +20,47 @@ from src.lightning.lightning_loftr import PL_LoFTR
 from src.config.default import get_cfg_defaults
 
 
-def _load_image_tensor(path: str, resize: int | None, in_channels: int) -> torch.Tensor:
+def _load_image_tensor(
+    path: str,
+    resize: int | None,
+    in_channels: int,
+) -> tuple[torch.Tensor, tuple[int, int], tuple[int, int]]:
     if in_channels == 1:
         img = Image.open(path).convert("L")
     else:
         img = Image.open(path).convert("RGB")
+    orig_size = img.size
     if resize is not None:
         img = img.resize((resize, resize), Image.BILINEAR)
+    resized_size = img.size
     arr = np.asarray(img).astype(np.float32) / 255.0
     if arr.ndim == 2:
         arr = arr[None, :, :]
     else:
         arr = arr.transpose(2, 0, 1)
-    return torch.from_numpy(arr)[None]
+    return torch.from_numpy(arr)[None], orig_size, resized_size
+
+
+def _rescale_points_to_original(
+    points: np.ndarray,
+    orig_size: tuple[int, int],
+    resized_size: tuple[int, int],
+) -> np.ndarray:
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+    if pts.size == 0:
+        return pts
+
+    w_orig, h_orig = orig_size
+    w_new, h_new = resized_size
+    if w_orig <= 0 or h_orig <= 0 or w_new <= 0 or h_new <= 0:
+        raise ValueError("invalid image size for point rescaling")
+    if (w_orig, h_orig) == (w_new, h_new):
+        return pts.copy()
+
+    out = pts.copy()
+    out[:, 0] *= float(w_orig) / float(w_new)
+    out[:, 1] *= float(h_orig) / float(h_new)
+    return out
 
 
 def write_matches_txt(out_path: str, mkpts0: np.ndarray, mkpts1: np.ndarray) -> None:
@@ -80,8 +108,18 @@ def main():
     matcher.eval()
 
     in_channels = getattr(config.LOFTR, "IN_CHANNELS", 3)
-    img0 = _load_image_tensor(args.img0, resize=args.imgresize, in_channels=in_channels).to(device)
-    img1 = _load_image_tensor(args.img1, resize=args.imgresize, in_channels=in_channels).to(device)
+    img0, img0_orig_size, img0_resized_size = _load_image_tensor(
+        args.img0,
+        resize=args.imgresize,
+        in_channels=in_channels,
+    )
+    img1, img1_orig_size, img1_resized_size = _load_image_tensor(
+        args.img1,
+        resize=args.imgresize,
+        in_channels=in_channels,
+    )
+    img0 = img0.to(device)
+    img1 = img1.to(device)
 
     _, _, h0, w0 = img0.shape
     _, _, h1, w1 = img1.shape
@@ -102,6 +140,8 @@ def main():
 
     mkpts0 = batch["mkpts0_f"].detach().cpu().numpy()
     mkpts1 = batch["mkpts1_f"].detach().cpu().numpy()
+    mkpts0 = _rescale_points_to_original(mkpts0, img0_orig_size, img0_resized_size)
+    mkpts1 = _rescale_points_to_original(mkpts1, img1_orig_size, img1_resized_size)
 
     write_matches_txt(args.matches_out, mkpts0, mkpts1)
     print(f"[OK] Wrote matches: {args.matches_out}  count={mkpts0.shape[0]}")

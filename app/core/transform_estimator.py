@@ -10,10 +10,10 @@ def estimate_transform_3x3(
     points1: np.ndarray,
     points2: np.ndarray,
     method: str,
-    thresh_px: float,
-    ransac_max_iters: int = 5000,
-    ransac_confidence: float = 0.995,
-    ransac_refine_iters: int = 10,
+    thresh_px: float = 3.0,
+    ransac_max_iters: int | None = None,
+    ransac_confidence: float | None = None,
+    ransac_refine_iters: int | None = None,
 ) -> TransformEstimation:
     m = (method or "").strip().lower()
     if m in ("affine", "homography"):

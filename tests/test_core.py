@@ -48,6 +48,47 @@ class TestCore(unittest.TestCase):
         res = estimate_transform_3x3_ransac(p1.astype(np.float32), p2.astype(np.float32), "homography", thresh_px=2.0)
         self.assertTrue(np.allclose(res.H_3x3, np.eye(3), atol=1e-2))
 
+    def test_affine_ransac_filters_duplicate_pairs(self):
+        p1 = np.array(
+            [
+                [0.0, 0.0],
+                [10.0, 0.0],
+                [0.0, 10.0],
+                [10.0, 10.0],
+                [10.0, 10.0],
+                [10.0, 10.0],
+            ],
+            dtype=np.float32,
+        )
+        p2 = p1 + np.array([5.0, -3.0], dtype=np.float32)
+
+        res = estimate_affine_3x3_ransac(p1, p2, thresh_px=0.5)
+
+        expected = np.array([[1, 0, 5], [0, 1, -3], [0, 0, 1]], dtype=np.float64)
+        self.assertEqual(res.inlier_mask.shape[0], p1.shape[0])
+        self.assertTrue(res.inlier_mask.all())
+        self.assertTrue(np.allclose(res.H_3x3, expected, atol=1e-4))
+
+    def test_homography_ransac_filters_duplicate_pairs(self):
+        p1 = np.array(
+            [
+                [0.0, 0.0],
+                [20.0, 0.0],
+                [0.0, 20.0],
+                [20.0, 20.0],
+                [20.0, 20.0],
+                [20.0, 20.0],
+            ],
+            dtype=np.float32,
+        )
+        p2 = p1.copy()
+
+        res = estimate_transform_3x3_ransac(p1, p2, "homography", thresh_px=0.5)
+
+        self.assertEqual(res.inlier_mask.shape[0], p1.shape[0])
+        self.assertTrue(res.inlier_mask.all())
+        self.assertTrue(np.allclose(res.H_3x3, np.eye(3), atol=1e-4))
+
     def test_fsc_affine_identity(self):
         p1 = np.random.rand(30, 2) * 100
         p2 = p1.copy()

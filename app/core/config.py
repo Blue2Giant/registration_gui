@@ -40,7 +40,21 @@ class AppConfig:
     generate_matches_if_missing: bool
 
     @staticmethod
+    def opencv_ransac_defaults(transform_model: str = "affine") -> dict[str, float | int]:
+        m = (transform_model or "").strip().lower()
+        defaults: dict[str, float | int] = {
+            "ransac_thresh_px": 3.0,
+            "ransac_max_iters": 2000,
+            "ransac_confidence": 0.99,
+            "ransac_refine_iters": 10,
+        }
+        if m == "homography":
+            defaults["ransac_confidence"] = 0.995
+        return defaults
+
+    @staticmethod
     def default() -> "AppConfig":
+        ransac_defaults = AppConfig.opencv_ransac_defaults("affine")
         return AppConfig(
             exes=[],
             algorithms=[
@@ -59,10 +73,10 @@ class AppConfig:
             last_moving="",
             last_output_root=str((Path(__file__).resolve().parents[2] / "outputs").resolve()),
             last_transform_model="affine",
-            ransac_thresh_px=10.0,
-            ransac_max_iters=5000,
-            ransac_confidence=0.995,
-            ransac_refine_iters=10,
+            ransac_thresh_px=float(ransac_defaults["ransac_thresh_px"]),
+            ransac_max_iters=int(ransac_defaults["ransac_max_iters"]),
+            ransac_confidence=float(ransac_defaults["ransac_confidence"]),
+            ransac_refine_iters=int(ransac_defaults["ransac_refine_iters"]),
             checker_tile_px=48,
             generate_matches_if_missing=True,
         )
