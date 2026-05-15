@@ -10,4 +10,4 @@ python /data/flux_kontext/matching_anything/registration_demo.py /data/flux_kont
   --imgresize 832 \
   --plot_matches \
   --save_chessboard \
-  --chessboard_tile 128
+  --chessboard_tile 64
