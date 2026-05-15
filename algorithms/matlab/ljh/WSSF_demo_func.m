@@ -2,12 +2,15 @@ function [matchedPoints1, matchedPoints2, matches] = WSSF_demo_func(im1, im2, ma
 close all;
 beep off;
 warning('off');
-%addpath(genpath('PSATF'));
-%addpath(genpath('Others'));
+addpath(genpath('PSATF'));
+addpath(genpath('Others'));
 %addpath(genpath('TV'));
 if nargin < 3 || isempty(matchesPath)
     matchesPath = '.\matches.txt';
 end
+matchedPoints1 = zeros(0,2);
+matchedPoints2 = zeros(0,2);
+matches = zeros(0,4);
 try
     if ischar(im1) || isstring(im1)
         image_3 = uint8(imread(im1));
@@ -46,30 +49,46 @@ try
     Corner_descriptors_1 = GLOH_descriptors(Corner_gradient_1, Corner_angle_1, Corner_KeyPts_1, Path_Block, ratio,sigma_1);
     Bolb_descriptors_2 = GLOH_descriptors(Bolb_gradient_2, Bolb_angle_2, Bolb_KeyPts_2, Path_Block, ratio,sigma_1);
     Corner_descriptors_2 = GLOH_descriptors(Corner_gradient_2, Corner_angle_2, Corner_KeyPts_2, Path_Block, ratio,sigma_1);
-    [indexPairs,~] = matchFeatures(Bolb_descriptors_1.des,Bolb_descriptors_2.des,'MaxRatio',1,'MatchThreshold', 50,'Unique',true );
-    if isempty(indexPairs)
-        matchedPoints1 = zeros(0,2);
-        matchedPoints2 = zeros(0,2);
-        matches = zeros(0,4);
-        dlmwrite(matchesPath, matches, 'delimiter', ' ');
-        return
+
+    rawPoints1 = zeros(0, 2);
+    rawPoints2 = zeros(0, 2);
+
+    if ~isempty(Bolb_descriptors_1.des) && ~isempty(Bolb_descriptors_2.des)
+        [indexPairs,~] = matchFeatures(Bolb_descriptors_1.des,Bolb_descriptors_2.des,'MaxRatio',1,'MatchThreshold', 50,'Unique',true );
+        if ~isempty(indexPairs)
+            [matchedPoints_1_1,matchedPoints_1_2] = BackProjection(Bolb_descriptors_1.locs(indexPairs(:, 1), :),Bolb_descriptors_2.locs(indexPairs(:, 2), :),ScaleValue);
+            rawPoints1 = [rawPoints1; matchedPoints_1_1];
+            rawPoints2 = [rawPoints2; matchedPoints_1_2];
+        end
     end
-    [matchedPoints_1_1,matchedPoints_1_2] = BackProjection(Bolb_descriptors_1.locs(indexPairs(:, 1), :),Bolb_descriptors_2.locs(indexPairs(:, 2), :),ScaleValue);
-    [indexPairs,~] = matchFeatures(Corner_descriptors_1.des,Corner_descriptors_2.des,'MaxRatio',1,'MatchThreshold', 50,'Unique',true );
-    if isempty(indexPairs)
-        matchedPoints1 = zeros(0,2);
-        matchedPoints2 = zeros(0,2);
-        matches = zeros(0,4);
-        dlmwrite(matchesPath, matches, 'delimiter', ' ');
-        return
+
+    if ~isempty(Corner_descriptors_1.des) && ~isempty(Corner_descriptors_2.des)
+        [indexPairs,~] = matchFeatures(Corner_descriptors_1.des,Corner_descriptors_2.des,'MaxRatio',1,'MatchThreshold', 50,'Unique',true );
+        if ~isempty(indexPairs)
+            [matchedPoints_2_1,matchedPoints_2_2] = BackProjection(Corner_descriptors_1.locs(indexPairs(:, 1), :),Corner_descriptors_2.locs(indexPairs(:, 2), :),ScaleValue);
+            rawPoints1 = [rawPoints1; matchedPoints_2_1];
+            rawPoints2 = [rawPoints2; matchedPoints_2_2];
+        end
     end
-    [matchedPoints_2_1,matchedPoints_2_2] = BackProjection(Corner_descriptors_1.locs(indexPairs(:, 1), :),Corner_descriptors_2.locs(indexPairs(:, 2), :),ScaleValue);
-    matchedPoints1 = [matchedPoints_1_1;matchedPoints_2_1];
-    matchedPoints2 = [matchedPoints_1_2;matchedPoints_2_2];
+
+    if isempty(rawPoints1) || size(rawPoints1,1) < 3
+        matchedPoints1 = rawPoints1;
+        matchedPoints2 = rawPoints2;
+    else
+        [H1,~] = FSC(rawPoints1,rawPoints2,'affine',3);
+        Y_ = H1 * [rawPoints1(:,[1,2])'; ones(1, size(rawPoints1,1))];
+        Y_(1,:) = Y_(1,:) ./ Y_(3,:);
+        Y_(2,:) = Y_(2,:) ./ Y_(3,:);
+        E = sqrt(sum((Y_(1:2,:) - rawPoints2(:,[1,2])').^2));
+        inliersIndex = E < 3;
+        matchedPoints1 = rawPoints1(inliersIndex, :);
+        matchedPoints2 = rawPoints2(inliersIndex, :);
+
+        [matchedPoints2, IA] = unique(matchedPoints2,'rows');
+        matchedPoints1 = matchedPoints1(IA,:);
+    end
+
     matches = [matchedPoints1 matchedPoints2];
 catch
-    matchedPoints1 = zeros(0,2);
-    matchedPoints2 = zeros(0,2);
-    matches = zeros(0,4);
 end
 dlmwrite(matchesPath, matches, 'delimiter', ' ');
